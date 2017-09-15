@@ -36,6 +36,8 @@ sub startup {
         }
     );
 
+    $me->plugin('Helpers::Auth');
+    $me->plugin('Helpers::Permissions');
     $me->plugin('Routes::Api');
 }
 
