@@ -1,0 +1,4 @@
+all:
+
+test:
+	PERL5LIB="lib" prove t

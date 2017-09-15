@@ -1,0 +1,18 @@
+1. Dependencies
+
+	First satisfy dependencies from original INSTALL
+
+	- Mojolicious (https://metacpan.org/release/Mojolicious)
+	- Data::Printer (https://metacpan.org/release/Data-Printer)
+	- Mojolicious::Plugin::ConfigHashMerge (https://metacpan.org/release/Mojolicious-Plugin-ConfigHashMerge)
+
+2. Setup Web server
+
+	Example for nginx 1.12.1 to use the mojo app as replacement:
+
+	location ~ ^/cgi-bin/tipp.cgi$ {
+		auth_basic      "TIPP";
+		auth_basic_user_file    /some/path/htpasswd.users;
+		rewrite /(.*) /api  break;
+		proxy_pass http://127.0.0.1:3000;
+	}
