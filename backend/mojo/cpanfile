@@ -1,3 +1,4 @@
 requires 'Mojolicious'                              '7.46';
 requires 'Data::Printer';
 requires 'Mojolicious::Plugin::ConfigHashMerge';
+requires 'Mojolicious::Plugin::Database';

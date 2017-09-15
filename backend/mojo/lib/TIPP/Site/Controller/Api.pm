@@ -3,7 +3,6 @@ use Mojo::Base 'Mojolicious::Controller';
 
 use Data::Printer alias => 'pp', use_prototypes => 0, colored => 1;
 
-use DBI;
 use DBIx::Perlish;
 use Mojo::JSON qw/decode_json/;
 
@@ -32,7 +31,7 @@ sub handle_root
 {
     my $c = shift;
 
-    my $dbh = $c->connect_db;
+    my $dbh = $c->dbh;
     my @c   = db_fetch {
         my $t : classes;
         sort $t->ord;
@@ -56,7 +55,7 @@ sub get_permissions
 {
     my $c    = shift;
     my $user = $c->get_remote_user();
-    my $dbh  = $c->connect_db();
+    my $dbh  = $c->dbh;
 
     my $default_group_id = $c->config->{tipp}{default_group_id};
     my $gid              = db_fetch {
@@ -97,21 +96,6 @@ sub get_remote_user
     my $c = shift;
     my ($u) = split /:/, ( $c->req->url->to_abs->userinfo || 'testing:' );
     return $u;
-}
-
-our $db_handler;
-
-sub connect_db
-{
-    my $c = shift;
-
-    return $db_handler if $db_handler;
-    $db_handler = DBI->connect(
-        sprintf( 'dbi:Pg:dbname=%s;host=%s', $c->config->{tipp}{db_name}, $c->config->{tipp}{db_host} ),
-        $c->config->{tipp}{db_user},
-        $c->config->{tipp}{db_pass},
-        { AutoCommit => 0 }
-    );
 }
 
 

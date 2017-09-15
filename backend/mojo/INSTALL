@@ -5,6 +5,7 @@
 	- Mojolicious (https://metacpan.org/release/Mojolicious)
 	- Data::Printer (https://metacpan.org/release/Data-Printer)
 	- Mojolicious::Plugin::ConfigHashMerge (https://metacpan.org/release/Mojolicious-Plugin-ConfigHashMerge)
+	- Mojolicious::Plugin::Database (https://metacpan.org/release/Mojolicious-Plugin-Database)
 
 2. Setup Web server
 
