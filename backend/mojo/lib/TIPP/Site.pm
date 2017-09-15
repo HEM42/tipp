@@ -37,7 +37,10 @@ sub startup {
     );
 
     $me->plugin('Helpers::Auth');
+    $me->plugin('Helpers::Ip');
     $me->plugin('Helpers::Permissions');
+    $me->plugin('Helpers::Tags');
+    $me->plugin('Helpers::Utils');
     $me->plugin('Routes::Api');
 }
 

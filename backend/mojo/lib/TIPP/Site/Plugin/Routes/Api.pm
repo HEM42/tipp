@@ -9,7 +9,13 @@ sub register
     my $api = $app->routes->under('/api');
 
     $api->any( [qw(get post)] => '' )->to('api#handle_root')->name('api-root');
-    $api->any( [qw(get post)] => 'config' )->to('api#handle_config')->name('api-config');
+
+    my @cmds = qw/config class net paginate addresses nslookup/;
+    for my $cmd ( @cmds, 'suggest-network') {
+        ( my $path = $cmd ) =~  s/-/_/g;
+        $api->any( [qw(get post)] => $cmd )->to("api#handle_$path")->name("api-$path");
+    }
+    
     $api->any( [qw(get post)] => 'ping' )->to('api#ping')->name('api-ping');
 }
 
