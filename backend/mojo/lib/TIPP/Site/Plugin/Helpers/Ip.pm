@@ -2,13 +2,14 @@ package TIPP::Site::Plugin::Helpers::Ip;
 use Mojo::Base 'Mojolicious::Plugin';
 
 use Data::Printer alias => 'pp', use_prototypes => 0, colored => 1;
+use DBIx::Perlish;
 
 sub register
 {
     my ( $me, $app ) = @_;
 
     $app->helper( 'N', sub { my $c = shift; TIPP::NetAddr::IP->new(@_) } );
-    
+
     $app->helper(
         'ip.calculate_gaps',
         sub {
@@ -54,6 +55,47 @@ sub register
                 }
             }
             @n;
+        }
+    );
+
+    $app->helper(
+        'ip.compact',
+        sub {
+            my $c = shift;
+            return NetAddr::IP::Compact(@_);
+        }
+    );
+
+    $app->helper(
+        'ip.info',
+        sub {
+            my $c    = shift;
+            my $ip   = shift;
+            my $dbh  = $c->dbh;
+            my $info = db_fetch {
+                my $i : ips;
+                $i->ip == $ip;
+                $i->invalidated == 0;
+            };
+            if ($info) {
+                my $e = db_fetch {
+                    my $e : ip_extras;
+                    $e->id == $info->{id};
+                };
+                %$info = ( %$info, %$e ) if $e;
+            } else {
+                $info = {};
+            }
+
+            $info->{ip}          ||= $ip;
+            $info->{id}          ||= 0;
+            $info->{invalidated} ||= 0;
+            for my $k (qw(descr location phone owner hostname comments)) {
+                $info->{$k} ||= "";
+                $info->{$k} = $c->u2p( $info->{$k} );
+            }
+
+            return $info;
         }
     );
 }

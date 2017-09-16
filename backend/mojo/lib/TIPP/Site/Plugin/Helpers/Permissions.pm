@@ -55,6 +55,22 @@ sub register
         }
     );
 
+    $app->helper(
+        'perms.check',
+        sub {
+            my ( $c, $what, $class_id ) = @_;
+            my $perms = $c->perms->get;
+            return 1 if $perms->{superuser};
+            if ($class_id) {
+                return ( $perms->{by_class}{$class_id} && $perms->{by_class}{$class_id}{$what} ) || $perms->{$what};
+            } elsif ( $what =~ /^(?:net|range|ip)$/ ) {
+                for my $v ( values %{ $perms->{by_class} } ) {
+                    return 1 if $v->{$what};
+                }
+            }
+            return $perms->{$what};
+        }
+    );
 }
 
 

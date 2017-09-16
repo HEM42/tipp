@@ -10,12 +10,12 @@ sub register
 
     $api->any( [qw(get post)] => '' )->to('api#handle_root')->name('api-root');
 
-    my @cmds = qw/config class net paginate addresses nslookup/;
-    for my $cmd ( @cmds, 'suggest-network') {
-        ( my $path = $cmd ) =~  s/-/_/g;
+    my @cmds = qw/config class net paginate addresses nslookup search/;
+    for my $cmd ( @cmds, 'ip-history', 'get-ip', 'edit-ip', 'edit-net', 'suggest-network', 'top-level-nets', 'fetch-settings', 'remove-net', 'tags-summary', 'networks-for-tag', 'update-user', 'update-group' ) {
+        ( my $path = $cmd ) =~ s/-/_/g;
         $api->any( [qw(get post)] => $cmd )->to("api#handle_$path")->name("api-$path");
     }
-    
+
     $api->any( [qw(get post)] => 'ping' )->to('api#ping')->name('api-ping');
 }
 
