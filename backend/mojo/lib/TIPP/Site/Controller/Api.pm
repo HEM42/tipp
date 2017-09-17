@@ -88,13 +88,14 @@ sub handle_top_level_nets
 {
     my $c = shift;
 
-	my $dbh = $c->dbh;
-	my @c = map { $c->N($_) } db_fetch {
-		my $t : classes_ranges;
-		return $t->net;
-	};
-	my @r = map { "$_" } $c->ip->compact(@c);
-	$c->render( json => \@r );
+    my $dbh = $c->dbh;
+    my @c = map { $c->N($_) }
+      db_fetch {
+        my $t : classes_ranges;
+        return $t->net;
+      };
+    my @r = map {"$_"} $c->ip->compact(@c);
+    $c->render( json => \@r );
 }
 
 sub handle_net
@@ -326,173 +327,181 @@ sub handle_new_network
 
 sub handle_edit_net
 {
-    my $c = shift;
-	my $dbh = $c->dbh;
-	my $id = $c->param("id");
-	my $class_id = $c->param("class_id");
-	my $descr    = $c->u2p($c->param("descr"));
-	my $tags     = $c->tags->normalize_string($c->u2p($c->param("tags")||""));
-	my $net = db_fetch { my $n : networks;  $n->id == $id;  $n->invalidated == 0; };
+    my $c        = shift;
+    my $dbh      = $c->dbh;
+    my $id       = $c->param("id");
+    my $class_id = $c->param("class_id");
+    my $descr    = $c->u2p( $c->param("descr") );
+    my $tags     = $c->tags->normalize_string( $c->u2p( $c->param("tags") || "" ) );
+    my $net      = db_fetch { my $n : networks; $n->id == $id; $n->invalidated == 0; };
     return $c->render( json => { error => "No such network (maybe someone else changed it?)" } ) unless $net;
-    return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check("net", $class_id);
-	$net->{descr} = $c->u2p($net->{descr});
-	$net->{tags} = $c->tags->fetch_string_for_id($id);
-	my $msg;
-	if ($descr ne $net->{descr} || $net->{class_id} != $class_id || $net->{tags} ne $tags) {
-		my $when = time;
-		my $who = $c->current_user;
-		db_update {
-			my $n : networks;
-			$n->id == $id;
+    return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check( "net", $class_id );
+    $net->{descr} = $c->u2p( $net->{descr} );
+    $net->{tags}  = $c->tags->fetch_string_for_id($id);
+    my $msg;
 
-			$n->invalidated = $when;
-			$n->invalidated_by = $who;
-		};
-		my $new_id = db_fetch { return `nextval('networks_id_seq')`; };
-		db_insert 'networks', {
-			id			=> $new_id,
-			net			=> $net->{net},
-			class_id	=> $class_id,
-			descr		=> $descr,
-			created		=> $when,
-			invalidated	=> 0,
-			created_by	=> $who,
-		};
-		$c->tags->insert_string($new_id, $tags);
-		$msg = "Network $net->{net} updated successfully";
-		$c->log->change(network => "Modified network $net->{net}", when => $when);
-	} else {
-		$msg = "Network $net->{net} was not updated because nothing has changed";
-	}
-	my $new_net = db_fetch {
-		my $cr : classes_ranges;
-		my $n : networks;
-		my $c : classes;
-		$n->net == $net->{net};
-		$n->invalidated == 0;
-		inet_contains($cr->net, $n->net);
-		$c->id == $n->class_id;
-		sort $n->net;
-		return ($n->id, $n->net,
-			$n->class_id, class_name => $c->name,
-			$n->descr, $n->created, $n->created_by,
-			parent_class_id => $cr->class_id,
-			wrong_class => ($n->class_id != $cr->class_id));
-	};
-	unless ($new_net) {
-		$dbh->rollback;
-		return $c->render( json => { error => "Cannot update network information" } );
-	}
-	$dbh->commit;
-	$new_net->{descr} = $c->u2p($new_net->{descr});
-	$new_net->{msg} = $msg;
-	$new_net->{tags} = $tags;
-	$new_net->{created_by} ||= "";
-	$c->gen_calculated_params($new_net);
-	$c->render( json => $new_net );
+    if ( $descr ne $net->{descr} || $net->{class_id} != $class_id || $net->{tags} ne $tags ) {
+        my $when = time;
+        my $who  = $c->current_user;
+        db_update {
+            my $n : networks;
+            $n->id == $id;
+
+            $n->invalidated    = $when;
+            $n->invalidated_by = $who;
+        };
+        my $new_id = db_fetch { return `nextval('networks_id_seq')`; };
+        db_insert 'networks',
+          {
+            id          => $new_id,
+            net         => $net->{net},
+            class_id    => $class_id,
+            descr       => $descr,
+            created     => $when,
+            invalidated => 0,
+            created_by  => $who,
+          };
+        $c->tags->insert_string( $new_id, $tags );
+        $msg = "Network $net->{net} updated successfully";
+        $c->log->change( network => "Modified network $net->{net}", when => $when );
+    } else {
+        $msg = "Network $net->{net} was not updated because nothing has changed";
+    }
+    my $new_net = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
+        my $c : classes;
+        $n->net == $net->{net};
+        $n->invalidated == 0;
+        inet_contains( $cr->net, $n->net );
+        $c->id == $n->class_id;
+        sort $n->net;
+        return (
+            $n->id, $n->net,
+            $n->class_id,
+            class_name => $c->name,
+            $n->descr, $n->created, $n->created_by,
+            parent_class_id => $cr->class_id,
+            wrong_class     => ( $n->class_id != $cr->class_id )
+        );
+    };
+    unless ($new_net) {
+        $dbh->rollback;
+        return $c->render( json => { error => "Cannot update network information" } );
+    }
+    $dbh->commit;
+    $new_net->{descr} = $c->u2p( $new_net->{descr} );
+    $new_net->{msg}   = $msg;
+    $new_net->{tags}  = $tags;
+    $new_net->{created_by} ||= "";
+    $c->gen_calculated_params($new_net);
+    $c->render( json => $new_net );
 }
 
 sub handle_merge_net
 {
-    my $c = shift;
-	my $dbh = $c->dbh;
+    my $c   = shift;
+    my $dbh = $c->dbh;
 
     my $id = $c->param("id");
 
-	my $merge_with = $c->param("merge_with");
-	return $c->render( json => { error => "merge_with parameter is required" } )
-		unless $merge_with;
+    my $merge_with = $c->param("merge_with");
+    return $c->render( json => { error => "merge_with parameter is required" } )
+      unless $merge_with;
 
-	my $net0 = db_fetch { my $n : networks;  $n->id == $id;  $n->invalidated == 0; };
-	return $c->render ( json => { error => "No such network (maybe someone else changed it?)" } )
-		unless $net0;
+    my $net0 = db_fetch { my $n : networks; $n->id == $id; $n->invalidated == 0; };
+    return $c->render( json => { error => "No such network (maybe someone else changed it?)" } )
+      unless $net0;
 
-	my $net1 = db_fetch { my $n : networks;  $n->net == $merge_with;  $n->invalidated == 0; };
-	return $c->render( json => { error => "No neighbouring network (maybe someone else changed it?)" } )
-		unless $net1;
-	return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check("net", $net0->{class_id});
+    my $net1 = db_fetch { my $n : networks; $n->net == $merge_with; $n->invalidated == 0; };
+    return $c->render( json => { error => "No neighbouring network (maybe someone else changed it?)" } )
+      unless $net1;
+    return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check( "net", $net0->{class_id} );
 
-	my $n0 = $c->N($net0->{net});
-	my $n1 = $c->N($net1->{net});
-	my $super = $c->N($n0->network->addr . "/" . ($n0->masklen - 1))->network;
-	if ($super->network->addr ne $n0->network->addr) {
-		($net0,$net1) = ($net1,$net0);
-		($n0,$n1)     = ($n1,$n0);
-	}
+    my $n0    = $c->N( $net0->{net} );
+    my $n1    = $c->N( $net1->{net} );
+    my $super = $c->N( $n0->network->addr . "/" . ( $n0->masklen - 1 ) )->network;
+    if ( $super->network->addr ne $n0->network->addr ) {
+        ( $net0, $net1 ) = ( $net1, $net0 );
+        ( $n0,   $n1 )   = ( $n1,   $n0 );
+    }
 
-	return $c->render ( json => { error => "$n0 and $n1 belong to different classes, cannot merge" } )
-		unless $net0->{class_id} == $net1->{class_id};
+    return $c->render( json => { error => "$n0 and $n1 belong to different classes, cannot merge" } )
+      unless $net0->{class_id} == $net1->{class_id};
 
-	$net0->{descr} = $c->u2p($net0->{descr});
-	$net1->{descr} = $c->u2p($net1->{descr});
-	$net0->{descr} =~ s/^\s*\[merge\]\s+//;
-	$net1->{descr} =~ s/^\s*\[merge\]\s+//;
-	my $descr;
-	if ($net0->{descr} eq $net1->{descr}) {
-		$descr = "[merge] $net0->{descr}";
-	} else {
-		$descr = "[merge] $net0->{descr} | $net1->{descr}";
-	}
+    $net0->{descr} = $c->u2p( $net0->{descr} );
+    $net1->{descr} = $c->u2p( $net1->{descr} );
+    $net0->{descr} =~ s/^\s*\[merge\]\s+//;
+    $net1->{descr} =~ s/^\s*\[merge\]\s+//;
+    my $descr;
+    if ( $net0->{descr} eq $net1->{descr} ) {
+        $descr = "[merge] $net0->{descr}";
+    } else {
+        $descr = "[merge] $net0->{descr} | $net1->{descr}";
+    }
 
-	my $tags = $c->tags->to_string($c->tags->fetch_for_network($net0),
-		$c->tags->fetch_for_network($net1));
+    my $tags = $c->tags->to_string( $c->tags->fetch_for_network($net0), $c->tags->fetch_for_network($net1) );
 
-	my $when = time;
-	my $who = $c->current_user;
-	db_insert 'networks', {
-		id			=> sql("nextval('networks_id_seq')"),
-		net			=> "$super",
-		class_id	=> $net0->{class_id},
-		descr		=> $descr,
-		created		=> $when,
-		invalidated	=> 0,
-		created_by	=> $who,
-	};
+    my $when = time;
+    my $who  = $c->current_user;
+    db_insert 'networks',
+      {
+        id          => sql("nextval('networks_id_seq')"),
+        net         => "$super",
+        class_id    => $net0->{class_id},
+        descr       => $descr,
+        created     => $when,
+        invalidated => 0,
+        created_by  => $who,
+      };
 
-	db_update {
-		my $n : networks;
-		$n->invalidated == 0;
-		$n->id == $net0->{id} || $n->id == $net1->{id};
+    db_update {
+        my $n : networks;
+        $n->invalidated == 0;
+        $n->id == $net0->{id} || $n->id == $net1->{id};
 
-		$n->invalidated = $when;
-		$n->invalidated_by = $who;
-	};
-	my $nn = "$super";
+        $n->invalidated    = $when;
+        $n->invalidated_by = $who;
+    };
+    my $nn = "$super";
     $c->log->change( network => "Removed network $n0 (it was merged with $n1 into $nn)", when => $when );
     $c->log->change( network => "Removed network $n1 (it was merged with $n0 into $nn)", when => $when );
 
-	my $new_net = db_fetch {
-		my $cr : classes_ranges;
-		my $n : networks;
-		my $c : classes;
-		$n->net == $nn;
-		$n->invalidated == 0;
-		inet_contains($cr->net, $n->net);
-		$c->id == $n->class_id;
-		sort $n->net;
-		return ($n->id, $n->net,
-			$n->class_id, class_name => $c->name,
-			$n->descr, $n->created, $n->created_by,
-			parent_class_id => $cr->class_id,
-			wrong_class => ($n->class_id != $cr->class_id));
-	};
-	unless ($new_net) {
-		$dbh->rollback;
-		return $c->render( json => { error => "Cannot merge networks in the database" } );
-	}
+    my $new_net = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
+        my $c : classes;
+        $n->net == $nn;
+        $n->invalidated == 0;
+        inet_contains( $cr->net, $n->net );
+        $c->id == $n->class_id;
+        sort $n->net;
+        return (
+            $n->id, $n->net,
+            $n->class_id,
+            class_name => $c->name,
+            $n->descr, $n->created, $n->created_by,
+            parent_class_id => $cr->class_id,
+            wrong_class     => ( $n->class_id != $cr->class_id )
+        );
+    };
+    unless ($new_net) {
+        $dbh->rollback;
+        return $c->render( json => { error => "Cannot merge networks in the database" } );
+    }
 
-	$c->tags->insert_string($new_net->{id}, $tags);
+    $c->tags->insert_string( $new_net->{id}, $tags );
 
-	$c->log->change(network => "Added network $nn (via merge of $n0 and $n1)", when => $when);
-	$dbh->commit;
-	my $msg = "Networks $n0 and $n1 successfully merged into $nn";
+    $c->log->change( network => "Added network $nn (via merge of $n0 and $n1)", when => $when );
+    $dbh->commit;
+    my $msg = "Networks $n0 and $n1 successfully merged into $nn";
 
-	$new_net->{descr} = $c->u2p($new_net->{descr});
-	$new_net->{tags} = $tags;
-	$new_net->{msg} = $msg;
-	$new_net->{created_by} ||= "";
-	$c->gen_calculated_params($new_net);
-	$c->render( json => $new_net );
+    $new_net->{descr} = $c->u2p( $new_net->{descr} );
+    $new_net->{tags}  = $tags;
+    $new_net->{msg}   = $msg;
+    $new_net->{created_by} ||= "";
+    $c->gen_calculated_params($new_net);
+    $c->render( json => $new_net );
 }
 
 sub handle_edit_class_range
@@ -622,40 +631,40 @@ sub handle_add_class_range
 
 sub handle_remove_class_range
 {
-    my $c = shift;
-	my $dbh = $c->dbh;
-    my $id = $c->param("id");
+    my $c   = shift;
+    my $dbh = $c->dbh;
+    my $id  = $c->param("id");
 
-	my $range = db_fetch {
-		my $cr : classes_ranges;
-		my $n : networks;
+    my $range = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
 
-		$cr->id == $id;
-		join $cr < $n => db_fetch {
-			inet_contains($cr->net, $n->net);
-			$n->invalidated == 0;
-		};
+        $cr->id == $id;
+        join $cr < $n => db_fetch {
+            inet_contains( $cr->net, $n->net );
+            $n->invalidated == 0;
+        };
 
-		return $cr->id,$cr->net,$cr->class_id,$cr->descr,used => sum(2**(32-masklen($n->net)));
-	};
+        return $cr->id, $cr->net, $cr->class_id, $cr->descr, used => sum( 2**( 32 - masklen( $n->net ) ) );
+    };
 
-	return $c->render( json => { error => "Class range not found!" } ) unless $range;
-	return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check("range", $range->{class_id});
-	return $c->render( json => { error => "Class range $range->{net} is not empty!" } ) if $range->{used};
+    return $c->render( json => { error => "Class range not found!" } ) unless $range;
+    return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check( "range", $range->{class_id} );
+    return $c->render( json => { error => "Class range $range->{net} is not empty!" } ) if $range->{used};
 
-	my $when = time;
-	db_delete {
-		my $cr : classes_ranges;
-		$cr->id == $id;
-	};
-	$c->log->change(range => "Removed class-range $range->{net}", when => $when);
-	$dbh->commit;
-	$c->render( json => { msg => "Class range $range->{net} removed successfully" } );
+    my $when = time;
+    db_delete {
+        my $cr : classes_ranges;
+        $cr->id == $id;
+    };
+    $c->log->change( range => "Removed class-range $range->{net}", when => $when );
+    $dbh->commit;
+    $c->render( json => { msg => "Class range $range->{net} removed successfully" } );
 }
 
 sub handle_ip_net
 {
-    my $c = shift;
+    my $c   = shift;
     my $ip  = $c->param("ip") || return;
     my $dbh = $c->dbh;
     my $net = db_fetch {
@@ -684,7 +693,7 @@ sub handle_ip_net
 
 sub handle_net_history
 {
-    my $c = shift;
+    my $c   = shift;
     my $dbh = $c->dbh;
     my $nn  = $c->param("net") || "";
     my $net = db_fetch { my $n : networks; $n->net == $nn; return $n->net; };
@@ -745,7 +754,7 @@ sub handle_net_history
         delete $c->{invalidated_by};
     }
     @hist = reverse @hist;
-    $c->render( json =>  \@hist );
+    $c->render( json => \@hist );
 }
 
 sub handle_addresses
@@ -793,17 +802,17 @@ sub handle_addresses
 
 sub handle_get_ip
 {
-    my $c = shift;
-	my $ip = $c->param("ip");
-	my $ipn = $c->N($ip);
-    return $c->render( json => {error => "invalid IP"} ) unless $ipn;
-	$ip = $ipn->ip;  # our canonical form
-	$c->render( json =>  $c->ip->info($ip) );
+    my $c   = shift;
+    my $ip  = $c->param("ip");
+    my $ipn = $c->N($ip);
+    return $c->render( json => { error => "invalid IP" } ) unless $ipn;
+    $ip = $ipn->ip;    # our canonical form
+    $c->render( json => $c->ip->info($ip) );
 }
 
 sub handle_ip_history
 {
-    my $c = shift;
+    my $c  = shift;
     my $ip = $c->param("ip");
     $c->render( json => { error => "IP must be specified" } ) unless $ip;
     my $ipn = $c->N($ip);
@@ -876,7 +885,7 @@ sub handle_ip_history
         push @r, \%fake;
     }
     @r = reverse @r;
-    $c->render( json =>  \@r );
+    $c->render( json => \@r );
 }
 
 sub handle_edit_ip
@@ -907,7 +916,7 @@ sub handle_edit_ip
 
     if ($containing_net) {
         my $net = $c->N($containing_net);
-        return $c->render( json => { error => "invalid containing network" } ) unless $net;
+        return $c->render( json => { error => "invalid containing network" } )         unless $net;
         return $c->render( json => { error => "The address is outside the network" } ) unless $net->contains($ipn);
 
         # XXX shall we also test that the network in question
@@ -1251,13 +1260,13 @@ sub handle_split
 
 sub handle_changelog
 {
-    my $c = shift;
+    my $c      = shift;
     my $filter = $c->param("filter") || "";
-    my $page   = $c->param("page")   || 0;
+    my $page   = $c->param("page") || 0;
     $page = 0 if $page < 0;
     my $pagesize = $c->param("pagesize") || 30;
-    my $dbh = $c->dbh;
-    my $tz = $c->config->{tipp}{timezone};
+    my $dbh      = $c->dbh;
+    my $tz       = $c->config->{tipp}{timezone};
 
     my @s = split / /, $filter;
     for (@s) {s/\s+//g}
@@ -1466,24 +1475,24 @@ sub handle_fetch_settings
 {
     my $c = shift;
 
-	my $dbh = $c->dbh;
-	return { error => "Permission \"superuser\" denied" } unless $c->perms->check("superuser");
-	my @users = db_fetch {
-		my $u : users;
-		sort $u->name;
-	};
-	my @groups = db_fetch {
-		my $g : groups;
-		sort $g->id;
-	};
-	my %groups = map { $_->{id} => $_ } @groups;
-	for my $g (@groups) {
-		$g->{permissions} = $c->perms->expand(eval { decode_json($g->{permissions}); } || {});
-	}
-	my @classes = db_fetch {
-		my $t : classes;
-		sort $t->ord;
-	};
+    my $dbh = $c->dbh;
+    return { error => "Permission \"superuser\" denied" } unless $c->perms->check("superuser");
+    my @users = db_fetch {
+        my $u : users;
+        sort $u->name;
+    };
+    my @groups = db_fetch {
+        my $g : groups;
+        sort $g->id;
+    };
+    my %groups = map { $_->{id} => $_ } @groups;
+    for my $g (@groups) {
+        $g->{permissions} = $c->perms->expand( eval { decode_json( $g->{permissions} ); } || {} );
+    }
+    my @classes = db_fetch {
+        my $t : classes;
+        sort $t->ord;
+    };
     $c->render(
         json => {
             users         => \@users,
@@ -1496,125 +1505,130 @@ sub handle_fetch_settings
 
 sub handle_update_user
 {
-    my $c = shift;
-	my $dbh = $c->dbh;
+    my $c   = shift;
+    my $dbh = $c->dbh;
     return $c->render( json => { error => "Permission \"superuser\" denied" } ) unless $c->perms->check("superuser");
-	my $user = $c->param("user");
+    my $user = $c->param("user");
     return $c->render( json => { error => "user parameter is required" } ) unless defined $user;
-	my $group_id = $c->param("group_id");
+    my $group_id = $c->param("group_id");
     return $c->render( json => { error => "group_id parameter is required" } ) unless defined $group_id;
 
-	my $old_u = db_fetch {
-		my $u : users;
-		$u->name == $user;
-	};
-	if ($old_u && $old_u->{group_id} == $group_id) {
-		return $c->render( json => $old_u );
-	}
-	my $g = db_fetch {
-		my $g : groups;
-		$g->id == $group_id;
-	};
+    my $old_u = db_fetch {
+        my $u : users;
+        $u->name == $user;
+    };
+    if ( $old_u && $old_u->{group_id} == $group_id ) {
+        return $c->render( json => $old_u );
+    }
+    my $g = db_fetch {
+        my $g : groups;
+        $g->id == $group_id;
+    };
     return $c->render( json => { error => "group_id $group_id not found" } ) unless $g;
-	if ($old_u) {
-		db_update {
-			my $u : users;
-			$u->name == $user;
+    if ($old_u) {
+        db_update {
+            my $u : users;
+            $u->name == $user;
 
-			$u->group_id = $group_id;
-		};
-		$c->log->change(user => "Modified user $user, group $group_id", when => time);
-	} else {
-		db_insert 'users', {
-			name        => $user,
-			group_id    => $group_id,
-		};
-		$c->log->change(user => "Created user $user, group $group_id", when => time);
-	}
-	$dbh->commit;
-	my $new_u = db_fetch {
-		my $u : users;
-		$u->name == $user;
-	};
-	$c->render( json => $new_u );
+            $u->group_id = $group_id;
+        };
+        $c->log->change( user => "Modified user $user, group $group_id", when => time );
+    } else {
+        db_insert 'users',
+          {
+            name     => $user,
+            group_id => $group_id,
+          };
+        $c->log->change( user => "Created user $user, group $group_id", when => time );
+    }
+    $dbh->commit;
+    my $new_u = db_fetch {
+        my $u : users;
+        $u->name == $user;
+    };
+    $c->render( json => $new_u );
 }
 
 sub handle_update_group
 {
     my $c = shift;
     return $c->render( json => { error => "Permission \"superuser\" denied" } ) unless $c->perms->check("superuser");
-	my $pn = $c->req->params->names;
-	my %globals = map { $_ => 1 } qw(superuser view_changelog view_usage_stats);
-	my $gid = $c->param("gid");
+    my $pn      = $c->req->params->names;
+    my %globals = map { $_ => 1 } qw(superuser view_changelog view_usage_stats);
+    my $gid     = $c->param("gid");
     return $c->render( json => { error => "gid parameter is required" } ) unless defined gid;
-	my $dbh = $c->dbh;
-	my $g = {};
-	for my $p (@$pn) {
-		if ($globals{$p}) {
-			$g->{$p} = $c->param($p);
-		} elsif ($p =~ /^(range|net|ip)-(\d+)$/) {
-			if ($2) {
-				$g->{by_class}{$2}{$1} = $c->param($p);
-			} else {
-				$g->{$1} = $c->param($p);
-			}
-		}
-	}
+    my $dbh = $c->dbh;
+    my $g   = {};
 
-	my @extra;
-	if ($gid) {
-		my $old = db_fetch {
-			my $g : groups;
+    for my $p (@$pn) {
+        if ( $globals{$p} ) {
+            $g->{$p} = $c->param($p);
+        } elsif ( $p =~ /^(range|net|ip)-(\d+)$/ ) {
+            if ($2) {
+                $g->{by_class}{$2}{$1} = $c->param($p);
+            } else {
+                $g->{$1} = $c->param($p);
+            }
+        }
+    }
 
-			$g->id == $gid;
-		} || "{}";
+    my @extra;
+    if ($gid) {
+        my $old = db_fetch {
+            my $g : groups;
 
-		my $old_g = $c->perms->expand(eval { decode_json($old->{permissions}); } || {});
-		my $new_g = $c->perms->expand($g);
-		my $comments = $c->param("comments");  $comments = "" unless defined $comments;
-		if (Data::Compare::Compare($old_g, $new_g) && $comments eq $old_g->{comments}) {
-			$old->{permissions} = $old_g;
-			return $c->render( json => $old );
-		}
-		my $json_permissions = encode_json($g);
-		db_update {
-			my $g : groups;
-			$g->id == $gid;
+            $g->id == $gid;
+        } || "{}";
 
-			$g->permissions = $json_permissions;
-			$g->comments = $comments;
-		};
-		$c->log->change(group => "Modified group $old->{name}", when => time);
-		$dbh->commit;
-		my $new = $old;
-		$new->{permissions} = $g;
-		$new->{comments} = $comments;
-		return $c->render( json => $new );
-	} else {
-		my $group_name = $c->param("name");
-		if (!$group_name) {
-			return $c->render( json => { error => "Group name is required" } );
-		} elsif ($group_name eq "change me!") {
-			return $c->render( json =>  { error => "Please choose reasonable group name" } );
-		}
-		my $comments = $c->param("comments");  $comments = "" unless defined $comments;
-		my $new_id = db_fetch { return `nextval('groups_id_seq')`; };
-		db_insert 'groups', {
-			id			=> $new_id,
-			name        => $group_name,
-			comments    => $comments,
-			permissions => encode_json($g),
-		};
-		$c->log->change(group => "Created group $group_name", when => time);
-		$dbh->commit;
-		my $new = db_fetch {
-			my $g : groups;
+        my $old_g    = $c->perms->expand( eval { decode_json( $old->{permissions} ); } || {} );
+        my $new_g    = $c->perms->expand($g);
+        my $comments = $c->param("comments");
+        $comments = "" unless defined $comments;
+        if ( Data::Compare::Compare( $old_g, $new_g ) && $comments eq $old_g->{comments} ) {
+            $old->{permissions} = $old_g;
+            return $c->render( json => $old );
+        }
+        my $json_permissions = encode_json($g);
+        db_update {
+            my $g : groups;
+            $g->id == $gid;
 
-			$g->id == $new_id;
-		} || "{}";
-		$new->{permissions} = $c->perms->expand(eval { decode_json($new->{permissions}); } || {});
-		return $c->render( json => $new );
-	}
+            $g->permissions = $json_permissions;
+            $g->comments    = $comments;
+        };
+        $c->log->change( group => "Modified group $old->{name}", when => time );
+        $dbh->commit;
+        my $new = $old;
+        $new->{permissions} = $g;
+        $new->{comments}    = $comments;
+        return $c->render( json => $new );
+    } else {
+        my $group_name = $c->param("name");
+        if ( !$group_name ) {
+            return $c->render( json => { error => "Group name is required" } );
+        } elsif ( $group_name eq "change me!" ) {
+            return $c->render( json => { error => "Please choose reasonable group name" } );
+        }
+        my $comments = $c->param("comments");
+        $comments = "" unless defined $comments;
+        my $new_id = db_fetch { return `nextval('groups_id_seq')`; };
+        db_insert 'groups',
+          {
+            id          => $new_id,
+            name        => $group_name,
+            comments    => $comments,
+            permissions => encode_json($g),
+          };
+        $c->log->change( group => "Created group $group_name", when => time );
+        $dbh->commit;
+        my $new = db_fetch {
+            my $g : groups;
+
+            $g->id == $new_id;
+        } || "{}";
+        $new->{permissions} = $c->perms->expand( eval { decode_json( $new->{permissions} ); } || {} );
+        return $c->render( json => $new );
+    }
 }
 
 # == PART OF THE NEW API ==
