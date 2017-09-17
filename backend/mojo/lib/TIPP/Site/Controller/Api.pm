@@ -4,10 +4,12 @@ use Mojo::Base 'Mojolicious::Controller';
 use Data::Printer alias => 'pp', use_prototypes => 0, colored => 1;
 
 use Data::Compare;
+use DateTime;
 use DBIx::Perlish;
 use Mojo::JSON qw/encode_json decode_json/;
 use Net::DNS::Resolver;
 use Regexp::Common 'net';
+use Text::CSV_XS 'csv';
 
 # == PART OF THE OLD API ==
 
@@ -33,6 +35,11 @@ sub handle_config
 sub handle_root
 {
     my $c = shift;
+
+    if ( $c->param("ipexport") ) {
+        $c->handle_ipexport;
+        return;
+    }
 
     my $dbh = $c->dbh;
     my @c   = db_fetch {
@@ -760,8 +767,15 @@ sub handle_net_history
 sub handle_addresses
 {
     my $c = shift;
-
     my $net = shift || $c->param("net") || return;
+
+    return $c->render( json => $c->get_addresses($net) );
+}
+
+sub get_addresses
+{
+    my ( $c, $net ) = @_;
+
     my $dbh = $c->dbh;
     my @dip = db_fetch {
         my $ip : ips;
@@ -797,7 +811,7 @@ sub handle_addresses
             push @ip, $ip{$ip};
         }
     }
-    $c->render( json => \@ip );
+    return \@ip;
 }
 
 sub handle_get_ip
@@ -1430,33 +1444,26 @@ sub handle_describe_ip
     $c->render( json => [ @info, @net ] );
 }
 
-#sub handle_ipexport
-#{
-#	my $r;
-#	if (param("range")) {
-#		$r = eval { do_ipexport_range($id, ignore_ip => param("ignore_ip"), with_free => param("with_free")); };
-#	} else {
-#		$r = eval { do_ipexport_net($id, ignore_ip => param("ignore_ip"), with_free => param("with_free")); };
-#	}
-#	if ($r && ref($r) && ref($r) eq "HASH" && !$r->{error}) {
-#		print csv_header($r->{filename});
-#		for (@{$r->{content}}) {
-#			print "$_\n";
-#		}
-#	} else {
-#		print html_header();
-#		print "<html><head><title>IP Export Error</title></head>\n";
-#		print "<body><h1>IP Export Error</h1><p>\n";
-#		if ($r && $r->{error}) {
-#			print "$r->{error}\n";
-#		} elsif ($r) {
-#			print "$r\n";
-#		} else {
-#			print "$@\n";
-#		}
-#		print "</p></body></html>\n";
-#	}
-#}
+sub handle_ipexport
+{
+    my $c = shift;
+    my $id = $c->param("ipexport");
+
+	my $r;
+	if ($c->param("range")) {
+		$r = eval { $c->export->range($id, ignore_ip => $c->param("ignore_ip"), with_free => $c->param("with_free")); };
+	} else {
+		$r = eval { $c->export->net($id, ignore_ip => $c->param("ignore_ip"), with_free => $c->param("with_free")); };
+	}
+
+    if ( $r && $r->{error} ) {
+        return $c->render( json => { error => $r->{error} } );
+    }
+
+    my $filename = sprintf "%s_%s.csv", $r->{filename}, DateTime->now->ymd;
+    $c->res->headers->content_disposition("attachment; filename=$filename;");
+    $c->render( data => $r->{content}, format => 'csv' );
+}
 
 sub handle_tags_summary
 {

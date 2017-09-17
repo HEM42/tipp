@@ -10,12 +10,12 @@ sub register
 
     $api->any( [qw(get post)] => '' )->to('api#handle_root')->name('api-root');
 
-    my @cmds = qw/config class net paginate addresses nslookup search split changelog ipexport/;
+    my @cmds = qw/config class net paginate addresses nslookup search split changelog/;
     for my $cmd (
         @cmds,              'ip-history',      'get-ip',         'edit-ip',         'new-network',      'edit-net',
         'merge-net',        'suggest-network', 'top-level-nets', 'fetch-settings',  'remove-net',       'tags-summary',
         'networks-for-tag', 'update-user',     'update-group',   'add-class-range', 'edit-class-range', 'ip-net',
-        'decscripe-ip'
+        'descripe-ip'
       )
     {
         ( my $path = $cmd ) =~ s/-/_/g;

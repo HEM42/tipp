@@ -1,7 +1,7 @@
 package TIPP::Site;
 use Mojo::Base 'Mojolicious';
 
-our $VERSION = v0.4.0;
+our $VERSION = v0.5.0;
 
 use File::Basename;
 use Mojolicious::Plugin::Database;
@@ -37,6 +37,7 @@ sub startup {
     );
 
     $me->plugin('Helpers::Auth');
+    $me->plugin('Helpers::Export');
     $me->plugin('Helpers::Ip');
     $me->plugin('Helpers::Log');
     $me->plugin('Helpers::Permissions');
