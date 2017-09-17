@@ -166,10 +166,7 @@ sub handle_net
                 $cr->class_id == $c->id;
                 return $cr->net, $cr->class_id, $cr->descr, class_name => $c->name;
             };
-            unless ( @r ) {
-                $c->render( json => { error => "Cannot find class_range" } );
-                return;
-            }
+            return $c->render( json => { error => "Cannot find class_range" } ) unless @r;
             my @miss = $c->ip->calculate_gaps( $limit ? $limit : $r[0]->{net}, map { $_->{net} } @c );
             for (@c) { $_->{nn} = $c->N( $_->{net} ) }
             for my $r (@r) {
@@ -304,7 +301,7 @@ sub handle_new_network
     };
     unless ($new_net) {
         $dbh->rollback;
-        return $c->render( json => { error => "Cannot insert network" } ) unless $new_net;
+        return $c->render( json => { error => "Cannot insert network" } );
     }
     $c->tags->insert_string( $new_net->{id}, $tags );
     $c->log->change( network => "Allocated new network $net of class $new_net->{class_name}", when => $when );
@@ -799,10 +796,7 @@ sub handle_get_ip
     my $c = shift;
 	my $ip = $c->param("ip");
 	my $ipn = $c->N($ip);
-    unless ( $ipn ) {
-        $c->render( json => {error => "invalid IP"} );
-        return;
-    }
+    return $c->render( json => {error => "invalid IP"} ) unless $ipn;
 	$ip = $ipn->ip;  # our canonical form
 	$c->render( json =>  $c->ip->info($ip) );
 }
@@ -811,15 +805,9 @@ sub handle_ip_history
 {
     my $c = shift;
     my $ip = $c->param("ip");
-    unless ( $ip ) {
-        $c->render( json => { error => "IP must be specified" } );
-        return;
-    }
+    $c->render( json => { error => "IP must be specified" } ) unless $ip;
     my $ipn = $c->N($ip);
-    unless ( $ipn ) {
-        $c->render( json => { error => "invalid IP" } );
-        return;
-    }
+    return $c->render( json => { error => "invalid IP" } ) unless $ipn;
     $ip = $ipn->ip;    # our canonical form
 
     my $dbh = $c->dbh;
@@ -902,15 +890,9 @@ sub handle_edit_ip
     }
     my $containing_net = $c->jsparam("containing_net");
     my $only_new       = $c->jsparam("only_new");
-    unless ( $p{ip} ) {
-        $c->render( json => { error => "IP must be specified" } );
-        return;
-    }
+    return $c->render( json => { error => "IP must be specified" } ) unless $p{ip};
     my $ipn = $c->N( $p{ip} );
-    unless ($ipn) {
-        $c->render( json => { error => "invalid IP" } );
-        return;
-    }
+    return $c->render( json => { error => "invalid IP" } ) unless $ipn;
     $p{ip} = $ipn->ip;    # our canonical form
 
     my $dbh    = $c->dbh;
@@ -920,42 +902,27 @@ sub handle_edit_ip
         $n->invalidated == 0;
         return $n->net, $n->class_id;
     };
-    unless ($within) {
-        $c->render( json => { error => "The address is outside a valid network" } );
-        return;
-    }
-    unless ( $c->perms->check( "ip", $within->{class_id} ) ) {
-        $c->render( json => { error => "Permission \"ip\" denied" } );
-        return;
-    }
+    return $c->render( json => { error => "The address is outside a valid network" } ) unless $within;
+    return $c->render( json => { error => "Permission \"ip\" denied" } ) unless $c->perms->check( "ip", $within->{class_id} );
 
     if ($containing_net) {
         my $net = $c->N($containing_net);
-        unless ($net) {
-            $c->render( json => { error => "invalid containing network" } );
-            return;
-        }
-        unless ( $net->contains($ipn) ) {
-            $c->render( json => { error => "The address is outside the network" } );
-            return;
-        }
+        return $c->render( json => { error => "invalid containing network" } ) unless $net;
+        return $c->render( json => { error => "The address is outside the network" } ) unless $net->contains($ipn);
 
         # XXX shall we also test that the network in question
         # is present and not invalid?
     }
 
     my $old = $c->ip->info( $p{ip} );
-    if ( $old->{id} && $only_new ) {
-        $c->render( json => { error => "This address is already allocated" } );
-        return;
-    }
+    return $c->render( json => { error => "This address is already allocated" } ) if $old->{id} && $only_new;
     my $changed = 0;
     for my $p (qw(descr location phone owner hostname comments)) {
         $changed = 1 if $old->{$p} ne $p{$p};
     }
     unless ($changed) {
         $old->{msg} = "IP $p{ip} was not updated because nothing has changed";
-        $c->render( json => $old );
+        return $c->render( json => $old );
     }
 
     my $need_extras = 0;
@@ -1017,14 +984,8 @@ sub handle_remove_net
         my $n : networks;
         $n->id == $id;
     };
-    unless ($netinfo) {
-        $c->render( json => { error => "Network not found" } );
-        return;
-    }
-    unless ( $c->perms->check( "net", $netinfo->{class_id} ) ) {
-        $c->render( json => { error => "Permission \"net\" denied" } );
-        return;
-    }
+    return $c->render( json => { error => "Network not found" } ) unless $netinfo;
+    return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check( "net", $netinfo->{class_id} );
     my $net  = $netinfo->{net};
     my $when = time;
     my $who  = $c->current_user;
@@ -1054,15 +1015,9 @@ sub handle_search
     my $c = shift;
     my $s = $c->u2p( $c->param("q") || "" );
 
-    if ( $s eq "" ) {
-        $c->render( json => { error => "search string not specified" } );
-        return;
-    }
+    return $c->render( json => { error => "search string not specified" } ) if $s eq "";
     my @s = grep { $_ ne "" } split /\s+/, $s;
-    unless (@s) {
-        $c->render( json => { error => "blank search string" } );
-        return;
-    }
+    return $c->render( json => { error => "blank search string" } ) unless @s;
 
     my %r = ( $c->search->networks(@s), $c->search->ips( 0, @s ), $c->search->ips( 1, @s ) );
     $r{n}  ||= [];
@@ -1079,28 +1034,16 @@ sub handle_suggest_network
 
     my $sz = $c->param("sz");
     my $limit = $c->param("limit") || "";
-    unless ($sz) {
-        $c->render( json => { error => "Network size is not specified" } );
-        return;
-    }
+    return $c->render( json => { error => "Network size is not specified" } ) unless $sz;
     $sz =~ s/.*?(\d+)$/$1/;
-    unless ( $sz =~ /^\d+$/ ) {
-        $c->render( json => { error => "Bad network size" } );
-        return;
-    }
-    unless ( $sz >= 8 && $sz <= 128 ) {
-        $c->render( json => { error => "Invalid network size" } ) unless $sz >= 8 && $sz <= 128;
-        return;
-    }
+    return $c->render( json => { error => "Bad network size" } ) unless $sz =~ /^\d+$/;
+    return $c->render( json => { error => "Invalid network size" } ) unless $sz >= 8 && $sz <= 128;
     my ( %cr, @all );
     my $dbh       = $c->dbh;
     my $ipv6_only = $sz > 32;
     if ($limit) {
         my $n_limit = $c->N($limit);
-        unless ($n_limit) {
-            $c->render( json => { error => "Invalid network limit" } );
-            return;
-        }
+        return $c->render( json => { error => "Invalid network limit" } ) unless $n_limit;
         $limit = "$n_limit";
         @all = map { { range => $limit, net => $_ } }
           db_fetch {
@@ -1151,8 +1094,7 @@ sub handle_suggest_network
     while ( $check_sz >= 8 ) {
         if ( $sz{$check_sz} ) {
             my $n = $sz{$check_sz}->[ rand @{ $sz{$check_sz} } ];
-            $c->render( json => { n => $n->network->addr . "/$sz" } );
-            return;
+            return $c->render( json => { n => $n->network->addr . "/$sz" } );
         }
         $check_sz--;
     }
@@ -1381,15 +1323,9 @@ sub handle_nslookup
     my $c = shift;
 
     my $ip = $c->param("ip") || "";
-    unless ($ip) {
-        $c->render( json => { error => "IP must be specified" } );
-        return;
-    }
+    return $c->render( json => { error => "IP must be specified" } ) unless $ip;
     my $ipn = $c->N($ip);
-    unless ($ipn) {
-        $c->render( json => { error => "invalid IP" } );
-        return;
-    }
+    return $c->render( json => { error => "invalid IP" } ) unless $ipn;
     $ip = $ipn->ip;    # our canonical form
 
     my $res = Net::DNS::Resolver->new;
@@ -1399,10 +1335,9 @@ sub handle_nslookup
     if ($query) {
         for my $rr ( $query->answer ) {
             next unless $rr->type eq "PTR";
-            $c->render( json => { host => $rr->ptrdname } );
-            return;
+            return $c->render( json => { host => $rr->ptrdname } );
         }
-        $c->render( json => { error => "PTR record for $ip not found" } );
+        return $c->render( json => { error => "PTR record for $ip not found" } );
     }
     $c->render( json => { error => "DNS query for $ip failed: " . $res->errorstring } );
 }
@@ -1412,20 +1347,14 @@ sub handle_paginate
     my $c = shift;
 
     my $nn = $c->param("net");
-    unless ($nn) {
-        $c->render( json => { error => "Network must be specified" } );
-        return;
-    }
+    return $c->render( json => { error => "Network must be specified" } ) unless $nn;
     my $n = $c->N($nn);
-    unless ($n) {
-        $c->render( json => { error => "Invalid network: $nn" } );
-        return;
-    }
+    return $c->render( json => { error => "Invalid network: $nn" } ) unless $n;
     if ( $n->version == 4 ) {
         if ( $n->masklen >= 26 ) {
             my $l = $n->broadcast->addr;
             $l =~ s/.*\.//;
-            $c->render( json => [ { base => $n->network->addr, last => $l, bits => $n->masklen } ] );
+            return $c->render( json => [ { base => $n->network->addr, last => $l, bits => $n->masklen } ] );
         } else {
             my @r;
             for my $ip ( $n->split(26) ) {
@@ -1433,10 +1362,10 @@ sub handle_paginate
                 $l =~ s/.*\.//;
                 push @r, { base => $ip->network->addr, last => $l, bits => 26 };
             }
-            $c->render( json => \@r );
+            return $c->render( json => \@r );
         }
     } else {
-        $c->render( json => [] );
+        return $c->render( json => [] );
     }
 }
 
@@ -1569,36 +1498,24 @@ sub handle_update_user
 {
     my $c = shift;
 	my $dbh = $c->dbh;
-    unless ( $c->perms->check("superuser") ) {
-        $c->render( json => { error => "Permission \"superuser\" denied" } );
-        return;
-    }
+    return $c->render( json => { error => "Permission \"superuser\" denied" } ) unless $c->perms->check("superuser");
 	my $user = $c->param("user");
-    unless ( defined $user ) {
-        $c->render( json => { error => "user parameter is required" } );
-        return;
-    }
+    return $c->render( json => { error => "user parameter is required" } ) unless defined $user;
 	my $group_id = $c->param("group_id");
-    unless ( defined $group_id ) {
-        $c->render( json => { error => "group_id parameter is required" } );
-        return;
-    }
+    return $c->render( json => { error => "group_id parameter is required" } ) unless defined $group_id;
 
 	my $old_u = db_fetch {
 		my $u : users;
 		$u->name == $user;
 	};
 	if ($old_u && $old_u->{group_id} == $group_id) {
-		$c->render( json => $old_u );
+		return $c->render( json => $old_u );
 	}
 	my $g = db_fetch {
 		my $g : groups;
 		$g->id == $group_id;
 	};
-    unless ( $g ) {
-        $c->render( json => { error => "group_id $group_id not found" } );
-        return;
-    }
+    return $c->render( json => { error => "group_id $group_id not found" } ) unless $g;
 	if ($old_u) {
 		db_update {
 			my $u : users;
@@ -1625,17 +1542,11 @@ sub handle_update_user
 sub handle_update_group
 {
     my $c = shift;
-    unless ( $c->perms->check("superuser") ) {
-        $c->render( json => { error => "Permission \"superuser\" denied" } );
-        return;
-    }
+    return $c->render( json => { error => "Permission \"superuser\" denied" } ) unless $c->perms->check("superuser");
 	my $pn = $c->req->params->names;
 	my %globals = map { $_ => 1 } qw(superuser view_changelog view_usage_stats);
 	my $gid = $c->param("gid");
-    unless ( defined $gid ) {
-        $c->render( json => { error => "gid parameter is required" } );
-        return;
-    }
+    return $c->render( json => { error => "gid parameter is required" } ) unless defined gid;
 	my $dbh = $c->dbh;
 	my $g = {};
 	for my $p (@$pn) {
@@ -1663,7 +1574,7 @@ sub handle_update_group
 		my $comments = $c->param("comments");  $comments = "" unless defined $comments;
 		if (Data::Compare::Compare($old_g, $new_g) && $comments eq $old_g->{comments}) {
 			$old->{permissions} = $old_g;
-			$c->render( json => $old );
+			return $c->render( json => $old );
 		}
 		my $json_permissions = encode_json($g);
 		db_update {
@@ -1678,14 +1589,13 @@ sub handle_update_group
 		my $new = $old;
 		$new->{permissions} = $g;
 		$new->{comments} = $comments;
-		$c->render( json => $new );
+		return $c->render( json => $new );
 	} else {
 		my $group_name = $c->param("name");
 		if (!$group_name) {
-			$c->render( json => { error => "Group name is required" } );
+			return $c->render( json => { error => "Group name is required" } );
 		} elsif ($group_name eq "change me!") {
-			$c->render( json =>  { error => "Please choose reasonable group name" } );
-            return;
+			return $c->render( json =>  { error => "Please choose reasonable group name" } );
 		}
 		my $comments = $c->param("comments");  $comments = "" unless defined $comments;
 		my $new_id = db_fetch { return `nextval('groups_id_seq')`; };
@@ -1703,7 +1613,7 @@ sub handle_update_group
 			$g->id == $new_id;
 		} || "{}";
 		$new->{permissions} = $c->perms->expand(eval { decode_json($new->{permissions}); } || {});
-		$c->render( json => $new );
+		return $c->render( json => $new );
 	}
 }
 
