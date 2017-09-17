@@ -1,7 +1,7 @@
 package TIPP::Site;
 use Mojo::Base 'Mojolicious';
 
-our $VERSION = v0.3.0;
+our $VERSION = v0.4.0;
 
 use File::Basename;
 use Mojolicious::Plugin::Database;

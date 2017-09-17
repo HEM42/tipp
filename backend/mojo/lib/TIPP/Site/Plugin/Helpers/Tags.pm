@@ -118,7 +118,7 @@ sub register
         'tags.fetch_string_for_network',
         sub {
             my $c = shift;
-            return $c->fetch_string_for_id($_[0]->{id});
+            return $c->tags->fetch_string_for_id($_[0]->{id});
         }
     );
 
@@ -126,7 +126,7 @@ sub register
         'tags.fetch_for_network',
         sub {
             my $c = shift;
-            return split /\s+/, $c->fetch_string_for_network(@_);
+            return split /\s+/, $c->tags->fetch_string_for_network(@_);
         }
     );
 

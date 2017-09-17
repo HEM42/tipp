@@ -7,6 +7,7 @@ use Data::Compare;
 use DBIx::Perlish;
 use Mojo::JSON qw/encode_json decode_json/;
 use Net::DNS::Resolver;
+use Regexp::Common 'net';
 
 # == PART OF THE OLD API ==
 
@@ -219,108 +220,113 @@ sub handle_net
     $c->render( json => \@c );
 }
 
-#sub handle_new_network
-#{
-#	my $net = param("net") || "";
-#	my $class_id = param("class_id") || 0;
-#	my $descr = u2p(param("descr")||"");
-#	my $limit = param("limit")||"";
-#	my $tags = normalize_tagstring(u2p(param("tags")||""));
-#	my $in_class_range = (param("in_class_range")||"") eq "true";
-#
-#	return { error => "Network must be specified" } unless $net;
-#	return { error => "Network class must be specified" } unless $class_id;
-#	return { error => "Permission \"net\" denied" } unless perm_check("net", $class_id);
-#	return { error => "Network description must be specified" } unless $descr;
-#	my $nn = N($net);
-#	return { error => "Bad network specification" } unless $nn;
-#	$nn = $nn->network;
-#	$net = "$nn";
-#
-#	if ($limit) {
-#		my $n_limit = N($limit);
-#		return {error=>"Invalid network limit"} unless $n_limit;
-#		$limit = "$n_limit";
-#		return {error=>"Network is not within $limit"} unless $n_limit->contains($nn);
-#	}
-#
-#	my $dbh = connect_db();
-#	my $cid = db_fetch {
-#		my $c : classes;
-#		$c->id == $class_id;
-#		return $c->id;
-#	};
-#	return { error => "Non-existing network class" } unless $cid;
-#	my $crid = db_fetch {
-#		my $cr : classes_ranges;
-#		inet_contains($cr->net, $net);
-#		return $cr->id;
-#	};
-#	return { error => "Network $net is outside of any known range" } unless $crid;
-#	my $first = $nn->first->addr;
-#	my $last  = $nn->last->addr;
-#	my $over = db_fetch {
-#		my $n : networks;
-#		$n->invalidated == 0;
-#		inet_contains($n->net, $net) or
-#		inet_contains($net, $n->net) or
-#		inet_contains($n->net, $first) or
-#		inet_contains($n->net, $last);
-#		return $n->net;
-#	};
-#	return { error => "Network $net overlaps with existing network $over" } if $over;
-#
-#	my $when = time;
-#	db_insert 'networks', {
-#		id			=> sql("nextval('networks_id_seq')"),
-#		net			=> $net,
-#		class_id	=> $class_id,
-#		descr		=> $descr,
-#		created		=> $when,
-#		invalidated	=> 0,
-#		created_by	=> remote_user(),
-#	};
-#
-#	my $new_net = db_fetch {
-#		my $cr : classes_ranges;
-#		my $n : networks;
-#		my $c : classes;
-#		$n->net == $net;
-#		$n->invalidated == 0;
-#		inet_contains($cr->net, $n->net);
-#		$c->id == $n->class_id;
-#		sort $n->net;
-#		return ($n->id, $n->net,
-#			$n->class_id, class_name => $c->name,
-#			$n->descr, $n->created, $n->created_by,
-#			parent_class_id => $cr->class_id,
-#			wrong_class => ($n->class_id != $cr->class_id));
-#	};
-#	unless ($new_net) {
-#		$dbh->rollback;
-#		return { error => "Cannot insert network" };
-#	}
-#	insert_tagstring($new_net->{id}, $tags);
-#	log_change(network => "Allocated new network $net of class $new_net->{class_name}", when => $when);
-#	if ($limit && !$in_class_range) {
-#		my $ret = handle_net(free => 1, limit => $limit);
-#		if ((ref($ret)||"") ne "ARRAY") {
-#			$dbh->rollback;
-#			return $ret;
-#		} else {
-#			$dbh->commit;
-#			return {msg => "Network $net successfully inserted", n => $ret};
-#		}
-#	}
-#	$dbh->commit;
-#	$new_net->{descr} = u2p($new_net->{descr});
-#	$new_net->{tags} = $tags;
-#	$new_net->{msg} = "Network $net successfully inserted";
-#	$new_net->{created_by} ||= "";
-#	gen_calculated_params($new_net);
-#	return $new_net;
-#}
-#
+sub handle_new_network
+{
+    my $c              = shift;
+    my $net            = $c->param("net") || "";
+    my $class_id       = $c->param("class_id") || 0;
+    my $descr          = $c->u2p( $c->param("descr") || "" );
+    my $limit          = $c->param("limit") || "";
+    my $tags           = $c->tags->normalize_string( $c->u2p( $c->param("tags") || "" ) );
+    my $in_class_range = ( $c->param("in_class_range") || "" ) eq "true";
+
+    return $c->render( json => { error => "Network must be specified" } )             unless $net;
+    return $c->render( json => { error => "Network class must be specified" } )       unless $class_id;
+    return $c->render( json => { error => "Permission \"net\" denied" } )             unless $c->perms->check( "net", $class_id );
+    return $c->render( json => { error => "Network description must be specified" } ) unless $descr;
+    my $nn = $c->N($net);
+    return $c->render( json => { error => "Bad network specification" } ) unless $nn;
+    $nn  = $nn->network;
+    $net = "$nn";
+
+    if ($limit) {
+        my $n_limit = $c->N($limit);
+        return $c->render( json => { error => "Invalid network limit" } ) unless $n_limit;
+        $limit = "$n_limit";
+        return $c->render( json => { error => "Network is not within $limit" } ) unless $n_limit->contains($nn);
+    }
+
+    my $dbh = $c->dbh;
+    my $cid = db_fetch {
+        my $c : classes;
+        $c->id == $class_id;
+        return $c->id;
+    };
+    return $c->render( json => { error => "Non-existing network class" } ) unless $cid;
+    my $crid = db_fetch {
+        my $cr : classes_ranges;
+        inet_contains( $cr->net, $net );
+        return $cr->id;
+    };
+    return $c->render( json => { error => "Network $net is outside of any known range" } ) unless $crid;
+    my $first = $nn->first->addr;
+    my $last  = $nn->last->addr;
+    my $over  = db_fetch {
+        my $n : networks;
+        $n->invalidated == 0;
+             inet_contains( $n->net, $net )
+          or inet_contains( $net,    $n->net )
+          or inet_contains( $n->net, $first )
+          or inet_contains( $n->net, $last );
+        return $n->net;
+    };
+    return $c->render( json => { error => "Network $net overlaps with existing network $over" } ) if $over;
+
+    my $when = time;
+    db_insert 'networks',
+      {
+        id          => sql("nextval('networks_id_seq')"),
+        net         => $net,
+        class_id    => $class_id,
+        descr       => $descr,
+        created     => $when,
+        invalidated => 0,
+        created_by  => $c->current_user,
+      };
+
+    my $new_net = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
+        my $c : classes;
+        $n->net == $net;
+        $n->invalidated == 0;
+        inet_contains( $cr->net, $n->net );
+        $c->id == $n->class_id;
+        sort $n->net;
+        return (
+            $n->id, $n->net,
+            $n->class_id,
+            class_name => $c->name,
+            $n->descr, $n->created, $n->created_by,
+            parent_class_id => $cr->class_id,
+            wrong_class     => ( $n->class_id != $cr->class_id )
+        );
+    };
+    unless ($new_net) {
+        $dbh->rollback;
+        return $c->render( json => { error => "Cannot insert network" } ) unless $new_net;
+    }
+    $c->tags->insert_string( $new_net->{id}, $tags );
+    $c->log->change( network => "Allocated new network $net of class $new_net->{class_name}", when => $when );
+    if ( $limit && !$in_class_range ) {
+        my $ret = handle_net( free => 1, limit => $limit );
+        if ( ( ref($ret) || "" ) ne "ARRAY" ) {
+            $dbh->rollback;
+            return $c->render( json => $ret );
+        } else {
+            $dbh->commit;
+            return $c->render( json => { msg => "Network $net successfully inserted", n => $ret } );
+        }
+    }
+    $dbh->commit;
+    $new_net->{descr} = $c->u2p( $new_net->{descr} );
+    $new_net->{tags}  = $tags;
+    $new_net->{msg}   = "Network $net successfully inserted";
+    $new_net->{created_by} ||= "";
+    $c->gen_calculated_params($new_net);
+    $c->render( json => $new_net );
+}
+
 sub handle_edit_net
 {
     my $c = shift;
@@ -330,18 +336,8 @@ sub handle_edit_net
 	my $descr    = $c->u2p($c->param("descr"));
 	my $tags     = $c->tags->normalize_string($c->u2p($c->param("tags")||""));
 	my $net = db_fetch { my $n : networks;  $n->id == $id;  $n->invalidated == 0; };
-    unless ( $net ) {
-        $c->render( json => { error => "No such network (maybe someone else changed it?)" } );
-        return;
-    }
-    unless ($c->perms->check("net", $class_id)) {
-        $c->render( json => { error => "Permission \"net\" denied" } );
-        return;
-    }
-    unless ($c->perms->check("net", $net->{class_id})) {
-        $c->render( json => { error => "Permission \"net\" denied" } );
-        return;
-    }
+    return $c->render( json => { error => "No such network (maybe someone else changed it?)" } ) unless $net;
+    return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check("net", $class_id);
 	$net->{descr} = $c->u2p($net->{descr});
 	$net->{tags} = $c->tags->fetch_string_for_id($id);
 	my $msg;
@@ -388,8 +384,7 @@ sub handle_edit_net
 	};
 	unless ($new_net) {
 		$dbh->rollback;
-		$c->render( json => { error => "Cannot update network information" } );
-        return;
+		return $c->render( json => { error => "Cannot update network information" } );
 	}
 	$dbh->commit;
 	$new_net->{descr} = $c->u2p($new_net->{descr});
@@ -400,343 +395,362 @@ sub handle_edit_net
 	$c->render( json => $new_net );
 }
 
-#sub handle_merge_net
-#{
-#	my $dbh = connect_db();
-#
-#	my $merge_with = param("merge_with");
-#	return { error => "merge_with parameter is required" }
-#		unless $merge_with;
-#
-#	my $net0 = db_fetch { my $n : networks;  $n->id == $id;  $n->invalidated == 0; };
-#	return { error => "No such network (maybe someone else changed it?)" }
-#		unless $net0;
-#
-#	my $net1 = db_fetch { my $n : networks;  $n->net == $merge_with;  $n->invalidated == 0; };
-#	return { error => "No neighbouring network (maybe someone else changed it?)" }
-#		unless $net1;
-#	return { error => "Permission \"net\" denied" } unless perm_check("net", $net0->{class_id});
-#
-#	my $n0 = N($net0->{net});
-#	my $n1 = N($net1->{net});
-#	my $super = N($n0->network->addr . "/" . ($n0->masklen - 1))->network;
-#	if ($super->network->addr ne $n0->network->addr) {
-#		($net0,$net1) = ($net1,$net0);
-#		($n0,$n1)     = ($n1,$n0);
-#	}
-#
-#	return { error => "$n0 and $n1 belong to different classes, cannot merge" }
-#		unless $net0->{class_id} == $net1->{class_id};
-#
-#	$net0->{descr} = u2p($net0->{descr});
-#	$net1->{descr} = u2p($net1->{descr});
-#	$net0->{descr} =~ s/^\s*\[merge\]\s+//;
-#	$net1->{descr} =~ s/^\s*\[merge\]\s+//;
-#	my $descr;
-#	if ($net0->{descr} eq $net1->{descr}) {
-#		$descr = "[merge] $net0->{descr}";
-#	} else {
-#		$descr = "[merge] $net0->{descr} | $net1->{descr}";
-#	}
-#
-#	my $tags = tags2tagstring(fetch_tags_for_network($net0),
-#		fetch_tags_for_network($net1));
-#
-#	my $when = time;
-#	my $who = remote_user();
-#	db_insert 'networks', {
-#		id			=> sql("nextval('networks_id_seq')"),
-#		net			=> "$super",
-#		class_id	=> $net0->{class_id},
-#		descr		=> $descr,
-#		created		=> $when,
-#		invalidated	=> 0,
-#		created_by	=> $who,
-#	};
-#
-#	db_update {
-#		my $n : networks;
-#		$n->invalidated == 0;
-#		$n->id == $net0->{id} || $n->id == $net1->{id};
-#
-#		$n->invalidated = $when;
-#		$n->invalidated_by = $who;
-#	};
-#	my $nn = "$super";
-#	log_change(network => "Removed network $n0 (it was merged with $n1 into $nn)", when => $when);
-#	log_change(network => "Removed network $n1 (it was merged with $n0 into $nn)", when => $when);
-#
-#	my $new_net = db_fetch {
-#		my $cr : classes_ranges;
-#		my $n : networks;
-#		my $c : classes;
-#		$n->net == $nn;
-#		$n->invalidated == 0;
-#		inet_contains($cr->net, $n->net);
-#		$c->id == $n->class_id;
-#		sort $n->net;
-#		return ($n->id, $n->net,
-#			$n->class_id, class_name => $c->name,
-#			$n->descr, $n->created, $n->created_by,
-#			parent_class_id => $cr->class_id,
-#			wrong_class => ($n->class_id != $cr->class_id));
-#	};
-#	unless ($new_net) {
-#		$dbh->rollback;
-#		return { error => "Cannot merge networks in the database" };
-#	}
-#
-#	insert_tagstring($new_net->{id}, $tags);
-#
-#	log_change(network => "Added network $nn (via merge of $n0 and $n1)", when => $when);
-#	$dbh->commit;
-#	my $msg = "Networks $n0 and $n1 successfully merged into $nn";
-#
-#	$new_net->{descr} = u2p($new_net->{descr});
-#	$new_net->{tags} = $tags;
-#	$new_net->{msg} = $msg;
-#	$new_net->{created_by} ||= "";
-#	gen_calculated_params($new_net);
-#	return $new_net;
-#}
-#
-#sub handle_edit_class_range
-#{
-#	my $dbh = connect_db();
-#	my $class_id = param("class_id");
-#	my $descr    = u2p(param("descr"));
-#	my $range = db_fetch { my $cr : classes_ranges;  $cr->id == $id; };
-#	return { error => "No such class range (maybe someone else changed it?)" }
-#		unless $range;
-#	return { error => "Permission \"range\" denied" } unless perm_check("range", $range->{class_id});
-#	return { error => "Permission \"range\" denied" } unless perm_check("range", $class_id);
-#	$range->{descr} = u2p($range->{descr}||"");
-#	my $msg;
-#	if ($descr ne $range->{descr} || $range->{class_id} != $class_id) {
-#		my $when = time;
-#		my $who = remote_user();
-#		db_update {
-#			my $cr : classes_ranges;
-#			$cr->id == $id;
-#
-#			$cr->descr = $descr;
-#			$cr->class_id = $class_id;
-#		};
-#		$msg = "Class range $range->{net} updated successfully";
-#		log_change(range => "Modified class-range $range->{net}", when => $when);
-#	} else {
-#		$msg = "Class range $range->{net} was not updated because nothing has changed";
-#	}
-#	my $new_range = db_fetch {
-#		my $cr : classes_ranges;
-#		my $n : networks;
-#
-#		$cr->id == $id;
-#		join $cr < $n => db_fetch {
-#			inet_contains($cr->net, $n->net);
-#			$n->invalidated == 0;
-#		};
-#
-#		return $cr->id,$cr->net,$cr->class_id,$cr->descr,used => sum(2**(32-masklen($n->net)));
-#	};
-#	unless ($new_range) {
-#		$dbh->rollback;
-#		return { error => "Cannot update class range information" };
-#	}
-#	$dbh->commit;
-#	$new_range->{descr} = u2p($new_range->{descr}||"");
-#	$new_range->{msg} = $msg;
-#	$new_range->{net} =~ /\/(\d+)/;
-#	$new_range->{used} ||= 0;
-#	$new_range->{addresses} = 2**(32-$1) - $new_range->{used};
-#	return $new_range;
-#}
-#
-#sub handle_add_class_range
-#{
-#	my $dbh = connect_db();
-#	my $class_id = param("class_id");
-#	my $descr    = u2p(param("descr"));
-#	return { error => "Permission \"range\" denied" } unless perm_check("range", $class_id);
-#	my $net = param("range")||"";
-#	my $nn = N($net);
-#	return { error => "Bad class range specification" } unless $nn;
-#	$net = "$nn";
-#
-#	my $cid = db_fetch {
-#		my $c : classes;
-#		$c->id == $class_id;
-#		return $c->id;
-#	};
-#	return { error => "Non-existing network class" } unless $cid;
-#
-#	my $first = $nn->network->addr;
-#	my $last  = $nn->broadcast->addr;
-#	my $over = db_fetch {
-#		my $cr : classes_ranges;
-#		inet_contains($cr->net, $net) or
-#		inet_contains($net, $cr->net) or
-#		inet_contains($cr->net, $first) or
-#		inet_contains($cr->net, $last);
-#		return $cr->net;
-#	};
-#	return { error => "Class range $net overlaps with existing class range $over" } if $over;
-#
-#	my $when = time;
-#	db_insert 'classes_ranges', {
-#		id			=> sql("nextval('classes_ranges_id_seq')"),
-#		net			=> $net,
-#		class_id	=> $class_id,
-#		descr		=> $descr,
-#	};
-#
-#	my $msg = "Class range $net created successfully";
-#	log_change(range => "Created class-range $net", when => $when);
-#
-#	my $new_range = db_fetch {
-#		my $cr : classes_ranges;
-#		my $n : networks;
-#
-#		$cr->net == $net;
-#		join $cr < $n => db_fetch {
-#			inet_contains($cr->net, $n->net);
-#			$n->invalidated == 0;
-#		};
-#
-#		return $cr->id,$cr->net,$cr->class_id,$cr->descr,
-#			used => sum(2**(2**(family($n->net)+1)-masklen($n->net))),
-#			f => family($cr->net);
-#	};
-#	unless ($new_range) {
-#		$dbh->rollback;
-#		return { error => "Cannot create new class range $net" };
-#	}
-#	$dbh->commit;
-#	$new_range->{descr} = u2p($new_range->{descr}||"");
-#	$new_range->{msg} = $msg;
-#	$new_range->{net} =~ /\/(\d+)/;
-#	$new_range->{used} ||= 0;
-#	$new_range->{addresses} = 2**(2**($new_range->{f}+1)-$1) - $new_range->{used};
-#	return $new_range;
-#}
-#
-#sub handle_remove_class_range
-#{
-#	my $dbh = connect_db();
-#
-#	my $range = db_fetch {
-#		my $cr : classes_ranges;
-#		my $n : networks;
-#
-#		$cr->id == $id;
-#		join $cr < $n => db_fetch {
-#			inet_contains($cr->net, $n->net);
-#			$n->invalidated == 0;
-#		};
-#
-#		return $cr->id,$cr->net,$cr->class_id,$cr->descr,used => sum(2**(32-masklen($n->net)));
-#	};
-#
-#	return { error => "Class range not found!" } unless $range;
-#	return { error => "Permission \"range\" denied" } unless perm_check("range", $range->{class_id});
-#	return { error => "Class range $range->{net} is not empty!" } if $range->{used};
-#
-#	my $when = time;
-#	db_delete {
-#		my $cr : classes_ranges;
-#		$cr->id == $id;
-#	};
-#	log_change(range => "Removed class-range $range->{net}", when => $when);
-#	$dbh->commit;
-#	return { msg => "Class range $range->{net} removed successfully" };
-#}
-#
-#sub handle_ip_net
-#{
-#	my $ip = param("ip") || return;
-#	my $dbh = connect_db();
-#	my $net = db_fetch {
-#		my $cr : classes_ranges;
-#		my $n : networks;
-#		my $c : classes;
-#		inet_contains($n->net, $ip);
-#		$n->invalidated == 0;
-#		inet_contains($cr->net, $n->net);
-#		$c->id == $n->class_id;
-#		sort $n->net;
-#		return ($n->id, $n->net,
-#			$n->class_id, class_name => $c->name,
-#			$n->descr, $n->created, $n->created_by,
-#			parent_class_id => $cr->class_id,
-#			wrong_class => ($n->class_id != $cr->class_id));
-#	};
-#	$net->{descr} = u2p($net->{descr});
-#	$net->{created_by} ||= "";
-#	gen_calculated_params($net);
-#	return $net;
-#}
-#
-#sub handle_net_history
-#{
-#	my $dbh = connect_db();
-#	my $nn = param("net") || "";
-#	my $net = db_fetch { my $n : networks;  $n->net == $nn; return $n->net; };
-#	return { error => "No network found, strange" } unless $net;
-#	my @net = db_fetch {
-#		my $cr : classes_ranges;
-#		my $n : networks;
-#		my $c : classes;
-#		$n->net == $net;
-#		inet_contains($cr->net, $n->net);
-#		$c->id == $n->class_id;
-#		sort $n->created;
-#		return ($n->id, $n->net,
-#			$n->class_id, class_name => $c->name,
-#			$n->descr, $n->created, $n->invalidated, $n->invalidated_by,
-#			parent_class_id => $cr->class_id, $n->created_by,
-#			wrong_class => ($n->class_id != $cr->class_id));
-#	};
-#	my $id2tag = fetch_tags_for_networks(@net);
-#	my $last;
-#	my @hist;
-#	for my $n (@net) {
-#		$n->{tags} = tagref2tagstring($id2tag->{$n->{id}});
-#		if ($last && $last->{invalidated} < $n->{created}) {
-#			my %fake;
-#			$fake{net}			= $net;
-#			$fake{class_name}	= "unallocated";
-#			$fake{descr}		= "";
-#			$fake{tags}			= "";
-#			$fake{id}			= 0;
-#			$fake{created}		= $last->{invalidated};
-#			$fake{invalidated}	= $n->{created};
-#			$fake{created_by}	= $last->{invalidated_by};
-#			push @hist, \%fake;
-#		}
-#		push @hist, $n;
-#		$last = $n;
-#	}
-#	if (@hist && $hist[-1]->{invalidated} > 0) {
-#		my %fake;
-#		$fake{net}			= $net;
-#		$fake{class_name}	= "unallocated";
-#		$fake{descr}		= "";
-#		$fake{tags}			= "";
-#		$fake{id}			= 0;
-#		$fake{created}		= $hist[-1]->{invalidated};
-#		$fake{invalidated}	= 0;
-#		$fake{created_by}	= $hist[-1]->{invalidated_by};
-#		push @hist, \%fake;
-#	}
-#	for my $c (@hist) {
-#		$c->{descr} = u2p($c->{descr});
-#		$c->{created_by} ||= "";
-#		delete $c->{invalidated_by};
-#	}
-#	@hist = reverse @hist;
-#	return \@hist;
-#}
-#
+sub handle_merge_net
+{
+    my $c = shift;
+	my $dbh = $c->dbh;
+
+    my $id = $c->param("id");
+
+	my $merge_with = $c->param("merge_with");
+	return $c->render( json => { error => "merge_with parameter is required" } )
+		unless $merge_with;
+
+	my $net0 = db_fetch { my $n : networks;  $n->id == $id;  $n->invalidated == 0; };
+	return $c->render ( json => { error => "No such network (maybe someone else changed it?)" } )
+		unless $net0;
+
+	my $net1 = db_fetch { my $n : networks;  $n->net == $merge_with;  $n->invalidated == 0; };
+	return $c->render( json => { error => "No neighbouring network (maybe someone else changed it?)" } )
+		unless $net1;
+	return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check("net", $net0->{class_id});
+
+	my $n0 = $c->N($net0->{net});
+	my $n1 = $c->N($net1->{net});
+	my $super = $c->N($n0->network->addr . "/" . ($n0->masklen - 1))->network;
+	if ($super->network->addr ne $n0->network->addr) {
+		($net0,$net1) = ($net1,$net0);
+		($n0,$n1)     = ($n1,$n0);
+	}
+
+	return $c->render ( json => { error => "$n0 and $n1 belong to different classes, cannot merge" } )
+		unless $net0->{class_id} == $net1->{class_id};
+
+	$net0->{descr} = $c->u2p($net0->{descr});
+	$net1->{descr} = $c->u2p($net1->{descr});
+	$net0->{descr} =~ s/^\s*\[merge\]\s+//;
+	$net1->{descr} =~ s/^\s*\[merge\]\s+//;
+	my $descr;
+	if ($net0->{descr} eq $net1->{descr}) {
+		$descr = "[merge] $net0->{descr}";
+	} else {
+		$descr = "[merge] $net0->{descr} | $net1->{descr}";
+	}
+
+	my $tags = $c->tags->to_string($c->tags->fetch_for_network($net0),
+		$c->tags->fetch_for_network($net1));
+
+	my $when = time;
+	my $who = $c->current_user;
+	db_insert 'networks', {
+		id			=> sql("nextval('networks_id_seq')"),
+		net			=> "$super",
+		class_id	=> $net0->{class_id},
+		descr		=> $descr,
+		created		=> $when,
+		invalidated	=> 0,
+		created_by	=> $who,
+	};
+
+	db_update {
+		my $n : networks;
+		$n->invalidated == 0;
+		$n->id == $net0->{id} || $n->id == $net1->{id};
+
+		$n->invalidated = $when;
+		$n->invalidated_by = $who;
+	};
+	my $nn = "$super";
+    $c->log->change( network => "Removed network $n0 (it was merged with $n1 into $nn)", when => $when );
+    $c->log->change( network => "Removed network $n1 (it was merged with $n0 into $nn)", when => $when );
+
+	my $new_net = db_fetch {
+		my $cr : classes_ranges;
+		my $n : networks;
+		my $c : classes;
+		$n->net == $nn;
+		$n->invalidated == 0;
+		inet_contains($cr->net, $n->net);
+		$c->id == $n->class_id;
+		sort $n->net;
+		return ($n->id, $n->net,
+			$n->class_id, class_name => $c->name,
+			$n->descr, $n->created, $n->created_by,
+			parent_class_id => $cr->class_id,
+			wrong_class => ($n->class_id != $cr->class_id));
+	};
+	unless ($new_net) {
+		$dbh->rollback;
+		return $c->render( json => { error => "Cannot merge networks in the database" } );
+	}
+
+	$c->tags->insert_string($new_net->{id}, $tags);
+
+	$c->log->change(network => "Added network $nn (via merge of $n0 and $n1)", when => $when);
+	$dbh->commit;
+	my $msg = "Networks $n0 and $n1 successfully merged into $nn";
+
+	$new_net->{descr} = $c->u2p($new_net->{descr});
+	$new_net->{tags} = $tags;
+	$new_net->{msg} = $msg;
+	$new_net->{created_by} ||= "";
+	$c->gen_calculated_params($new_net);
+	$c->render( json => $new_net );
+}
+
+sub handle_edit_class_range
+{
+    my $c        = shift;
+    my $dbh      = $c->dbh;
+    my $id       = $c->param("id");
+    my $class_id = $c->param("class_id");
+    my $descr    = $c->u2p( $c->param("descr") );
+    my $range    = db_fetch { my $cr : classes_ranges; $cr->id == $id; };
+    return $c->render( json => { error => "No such class range (maybe someone else changed it?)" } )
+      unless $range;
+    return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check( "range", $range->{class_id} );
+    return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check( "range", $class_id );
+    $range->{descr} = $c->u2p( $range->{descr} || "" );
+    my $msg;
+
+    if ( $descr ne $range->{descr} || $range->{class_id} != $class_id ) {
+        my $when = time;
+        my $who  = $c->current_user;
+        db_update {
+            my $cr : classes_ranges;
+            $cr->id == $id;
+
+            $cr->descr    = $descr;
+            $cr->class_id = $class_id;
+        };
+        $msg = "Class range $range->{net} updated successfully";
+        $c->log->change( range => "Modified class-range $range->{net}", when => $when );
+    } else {
+        $msg = "Class range $range->{net} was not updated because nothing has changed";
+    }
+    my $new_range = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
+
+        $cr->id == $id;
+        join $cr < $n => db_fetch {
+            inet_contains( $cr->net, $n->net );
+            $n->invalidated == 0;
+        };
+
+        return $cr->id, $cr->net, $cr->class_id, $cr->descr, used => sum( 2**( 32 - masklen( $n->net ) ) );
+    };
+    unless ($new_range) {
+        $dbh->rollback;
+        return $c->render( json => { error => "Cannot update class range information" } );
+    }
+    $dbh->commit;
+    $new_range->{descr} = $c->u2p( $new_range->{descr} || "" );
+    $new_range->{msg} = $msg;
+    $new_range->{net} =~ /\/(\d+)/;
+    $new_range->{used} ||= 0;
+    $new_range->{addresses} = 2**( 32 - $1 ) - $new_range->{used};
+    $c->render( json => $new_range );
+}
+
+sub handle_add_class_range
+{
+    my $c        = shift;
+    my $dbh      = $c->dbh;
+    my $class_id = $c->param("class_id");
+    my $descr    = $c->u2p( $c->param("descr") );
+    return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check( "range", $class_id );
+    my $net = $c->param("range") || "";
+    my $nn = $c->N($net);
+    return $c->render( json => { error => "Bad class range specification" } ) unless $nn;
+    $net = "$nn";
+
+    my $cid = db_fetch {
+        my $c : classes;
+        $c->id == $class_id;
+        return $c->id;
+    };
+    return $c->render( json => { error => "Non-existing network class" } ) unless $cid;
+
+    my $first = $nn->network->addr;
+    my $last  = $nn->broadcast->addr;
+    my $over  = db_fetch {
+        my $cr : classes_ranges;
+             inet_contains( $cr->net, $net )
+          or inet_contains( $net,     $cr->net )
+          or inet_contains( $cr->net, $first )
+          or inet_contains( $cr->net, $last );
+        return $cr->net;
+    };
+    return $c->render( json => { error => "Class range $net overlaps with existing class range $over" } ) if $over;
+
+    my $when = time;
+    db_insert 'classes_ranges',
+      {
+        id       => sql("nextval('classes_ranges_id_seq')"),
+        net      => $net,
+        class_id => $class_id,
+        descr    => $descr,
+      };
+
+    my $msg = "Class range $net created successfully";
+    $c->log->change( range => "Created class-range $net", when => $when );
+
+    my $new_range = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
+
+        $cr->net == $net;
+        join $cr < $n => db_fetch {
+            inet_contains( $cr->net, $n->net );
+            $n->invalidated == 0;
+        };
+
+        return $cr->id, $cr->net, $cr->class_id, $cr->descr,
+          used => sum( 2**( 2**( family( $n->net ) + 1 ) - masklen( $n->net ) ) ),
+          f    => family( $cr->net );
+    };
+    unless ($new_range) {
+        $dbh->rollback;
+        return $c->render( json => { error => "Cannot create new class range $net" } );
+    }
+    $dbh->commit;
+    $new_range->{descr} = $c->u2p( $new_range->{descr} || "" );
+    $new_range->{msg} = $msg;
+    $new_range->{net} =~ /\/(\d+)/;
+    $new_range->{used} ||= 0;
+    $new_range->{addresses} = 2**( 2**( $new_range->{f} + 1 ) - $1 ) - $new_range->{used};
+    $c->render( json => $new_range );
+}
+
+sub handle_remove_class_range
+{
+    my $c = shift;
+	my $dbh = $c->dbh;
+    my $id = $c->param("id");
+
+	my $range = db_fetch {
+		my $cr : classes_ranges;
+		my $n : networks;
+
+		$cr->id == $id;
+		join $cr < $n => db_fetch {
+			inet_contains($cr->net, $n->net);
+			$n->invalidated == 0;
+		};
+
+		return $cr->id,$cr->net,$cr->class_id,$cr->descr,used => sum(2**(32-masklen($n->net)));
+	};
+
+	return $c->render( json => { error => "Class range not found!" } ) unless $range;
+	return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check("range", $range->{class_id});
+	return $c->render( json => { error => "Class range $range->{net} is not empty!" } ) if $range->{used};
+
+	my $when = time;
+	db_delete {
+		my $cr : classes_ranges;
+		$cr->id == $id;
+	};
+	$c->log->change(range => "Removed class-range $range->{net}", when => $when);
+	$dbh->commit;
+	$c->render( json => { msg => "Class range $range->{net} removed successfully" } );
+}
+
+sub handle_ip_net
+{
+    my $c = shift;
+    my $ip  = $c->param("ip") || return;
+    my $dbh = $c->dbh;
+    my $net = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
+        my $c : classes;
+        inet_contains( $n->net, $ip );
+        $n->invalidated == 0;
+        inet_contains( $cr->net, $n->net );
+        $c->id == $n->class_id;
+        sort $n->net;
+        return (
+            $n->id, $n->net,
+            $n->class_id,
+            class_name => $c->name,
+            $n->descr, $n->created, $n->created_by,
+            parent_class_id => $cr->class_id,
+            wrong_class     => ( $n->class_id != $cr->class_id )
+        );
+    };
+    $net->{descr} = $c->u2p( $net->{descr} );
+    $net->{created_by} ||= "";
+    $c->gen_calculated_params($net);
+    $c->render( json => $net );
+}
+
+sub handle_net_history
+{
+    my $c = shift;
+    my $dbh = $c->dbh;
+    my $nn  = $c->param("net") || "";
+    my $net = db_fetch { my $n : networks; $n->net == $nn; return $n->net; };
+    return $c->render( json => { error => "No network found, strange" } ) unless $net;
+    my @net = db_fetch {
+        my $cr : classes_ranges;
+        my $n : networks;
+        my $c : classes;
+        $n->net == $net;
+        inet_contains( $cr->net, $n->net );
+        $c->id == $n->class_id;
+        sort $n->created;
+        return (
+            $n->id, $n->net,
+            $n->class_id,
+            class_name => $c->name,
+            $n->descr, $n->created, $n->invalidated, $n->invalidated_by,
+            parent_class_id => $cr->class_id,
+            $n->created_by,
+            wrong_class => ( $n->class_id != $cr->class_id )
+        );
+    };
+    my $id2tag = $c->tags->fetch_for_networks(@net);
+    my $last;
+    my @hist;
+    for my $n (@net) {
+        $n->{tags} = $c->tags->ref2string( $id2tag->{ $n->{id} } );
+        if ( $last && $last->{invalidated} < $n->{created} ) {
+            my %fake;
+            $fake{net}         = $net;
+            $fake{class_name}  = "unallocated";
+            $fake{descr}       = "";
+            $fake{tags}        = "";
+            $fake{id}          = 0;
+            $fake{created}     = $last->{invalidated};
+            $fake{invalidated} = $n->{created};
+            $fake{created_by}  = $last->{invalidated_by};
+            push @hist, \%fake;
+        }
+        push @hist, $n;
+        $last = $n;
+    }
+    if ( @hist && $hist[-1]->{invalidated} > 0 ) {
+        my %fake;
+        $fake{net}         = $net;
+        $fake{class_name}  = "unallocated";
+        $fake{descr}       = "";
+        $fake{tags}        = "";
+        $fake{id}          = 0;
+        $fake{created}     = $hist[-1]->{invalidated};
+        $fake{invalidated} = 0;
+        $fake{created_by}  = $hist[-1]->{invalidated_by};
+        push @hist, \%fake;
+    }
+    for my $c (@hist) {
+        $c->{descr} = u2p( $c->{descr} );
+        $c->{created_by} ||= "";
+        delete $c->{invalidated_by};
+    }
+    @hist = reverse @hist;
+    $c->render( json =>  \@hist );
+}
+
 sub handle_addresses
 {
     my $c = shift;
@@ -1152,206 +1166,216 @@ sub handle_suggest_network
     );
 }
 
-#sub handle_split
-#{
-#	my $ip = param("ip") || "";
-#	return {error => "split IP must be specified"} unless $ip;
-#	return {error => "invalid split IP"} unless $ip =~ /^$RE{net}{IPv4}$/;
-#	my $dbh = connect_db();
-#	my $nf = db_fetch {
-#		my $n : networks;
-#		$n->invalidated == 0;
-#		inet_contains($n->net, $ip);
-#	};
-#	return {error => "network to split not found"} unless $nf;
-#	return { error => "Permission \"net\" denied" } unless perm_check("net", $nf->{class_id});
-#	my $net = $nf->{net};
-#	my $n = N($net);
-#	return {error => "invalid network to split"} unless $n;
-#	my $sz;
-#	for my $sz0 (reverse (8..32)) {
-#		$sz = $sz0;
-#		my $sp = N("$ip/$sz");
-#		last unless $sp;
-#		last unless $sp->broadcast->addr eq $ip;
-#		last if $sz < $n->masklen;
-#	}
-#	return {error => "unable to find split point [sz $sz]"} if $sz >= 32;
-#	$sz++;
-#	my $extra_msg = $sz >= 31 ? "The split will have networks of size $sz - this looks like a mistake" : "";
-#	my $sn = N("$ip/$sz")->network;
-#	my @n = calculate_gaps($n, $sn);
-#	@n = sort { $a cmp $b } (@n, $sn);
-#	if (param("confirmed")) {
-#		my $when = time;
-#		my $who = remote_user();
-#		my $descr = $nf->{descr};
-#		$descr = "[split] $descr" unless $descr =~ /^\[split\]/;
-#		my $tags = fetch_tagstring_for_id($nf->{id});
-#		for my $nn (@n) {
-#			my $new_id = db_fetch { return `nextval('networks_id_seq')`; };
-#			db_insert 'networks', {
-#				id			=> $new_id,
-#				net			=> "$nn",
-#				class_id	=> $nf->{class_id},
-#				descr		=> $descr,
-#				created		=> $when,
-#				invalidated	=> 0,
-#				created_by	=> $who,
-#			};
-#			insert_tagstring($new_id, $tags);
-#			log_change(network => "Added network $nn (via split)", when => $when);
-#			my $ip_network   = $nn->network->addr;
-#			unless (db_fetch { my $i : ips; $i->ip == $ip_network; $i->invalidated == 0; return $i->id; }) {
-#				my $id = db_fetch { return `nextval('ips_id_seq')`; };
-#				db_insert 'ips', {
-#					id			=> $id,
-#					ip			=> $ip_network,
-#					descr		=> "Subnet",
-#					created		=> $when,
-#					invalidated	=> 0,
-#					created_by	=> $who,
-#				};
-#				log_change(ip => "Recorded IP $ip_network as a subnet address (via split)", when => $when);
-#			}
-#			my $ip_broadcast = $nn->broadcast->addr;
-#			unless (db_fetch { my $i : ips; $i->ip == $ip_broadcast; $i->invalidated == 0; return $i->id; }) {
-#				my $id = db_fetch { return `nextval('ips_id_seq')`; };
-#				db_insert 'ips', {
-#					id			=> $id,
-#					ip			=> $ip_broadcast,
-#					descr		=> "Broadcast",
-#					created		=> $when,
-#					invalidated	=> 0,
-#					created_by	=> $who,
-#				};
-#				log_change(ip => "Recorded IP $ip_broadcast as a broadcast address (via split)", when => $when);
-#			}
-#		}
-#		db_update {
-#			my $n : networks;
-#			$n->invalidated == 0;
-#			$n->net == $net;
-#
-#			$n->invalidated = $when;
-#			$n->invalidated_by = $who;
-#		};
-#		my @new = db_fetch {
-#			my $cr : classes_ranges;
-#			my $n : networks;
-#			my $c : classes;
-#			inet_contains($net, $n->net);
-#			$n->invalidated == 0;
-#			inet_contains($cr->net, $n->net);
-#			$c->id == $n->class_id;
-#			sort $n->net;
-#			return ($n->id, $n->net,
-#				$n->class_id, class_name => $c->name,
-#				$n->descr, $n->created, $n->created_by,
-#				parent_class_id => $cr->class_id,
-#				wrong_class => ($n->class_id != $cr->class_id));
-#		};
-#		unless (@new) {
-#			$dbh->rollback;
-#			return { error => "Cannot split network $net" };
-#		}
-#		my %c = map { $_->{net} => $_ } @new;
-#		for my $new_net (@new) {
-#			$new_net->{descr} = u2p($new_net->{descr}||"");
-#			$new_net->{tags} = u2p($tags);
-#			$new_net->{created_by} ||= "";
-#
-#			# find mergeable neighbours
-#			my $this = N($new_net->{net});
-#			my $super = N($this->network->addr . "/" . ($this->masklen - 1));
-#			my $neighbour;
-#			if ($super->network->addr eq $this->network->addr) {
-#				$neighbour = N($super->broadcast->addr . "/" . $this->masklen)->network;
-#			} else {
-#				$neighbour = N($super->network->addr . "/" . $this->masklen);
-#			}
-#			my $merge_with = $c{$neighbour};
-#			if ($merge_with && $merge_with->{class_id} == $new_net->{class_id}) {
-#				$new_net->{merge_with} = "$neighbour";
-#			}
-#
-#			gen_calculated_params($new_net);
-#		}
-#		log_change(network => "Removed network $net (via split)", when => $when);
-#		$dbh->commit;
-#		return {msg => "Network $net successfully split", n => \@new};
-#	} else {
-#		@n = map { "$_" } @n;
-#		return {n => \@n, o => "$n", extra_msg => $extra_msg };
-#	}
-#}
-#
-#sub handle_changelog
-#{
-#	my $filter = param("filter") || "";
-#	my $page = param("page") || 0;
-#	$page = 0 if $page < 0;
-#	my $pagesize = param("pagesize") || 30;
-#	my $dbh = connect_db();
-#
-#	my @s = split / /, $filter;
-#	for (@s) { s/\s+//g }
-#	@s = grep { $_ ne "" } @s;
-#
-#	my @filter = ('?');
-#	my @bind;
-#	for my $s (@s) {
-#		# XXX daylight savings troubles!!!
-#		push @filter, "(text(timestamp with time zone 'epoch' at time zone '$TIPP::timezone' + created * interval '1 second') ilike ? ".
-#			"or who ilike ? or change ilike ?)";
-#		push @bind, "%$s%", "%$s%", "%$s%";
-#	}
-#	unless (perm_check("view_changelog")) {
-#		push @filter, "who = ?";
-#		push @bind, remote_user();
-#	}
-#
-#=pod
-#This is possibly an efficient but horrible way to match dates.
-#The above way is probably inefficient but works good enough.
-#
-#		if ($s =~ /^XY(\d+)-(\d+)-(\d+)$/) {
-#			# looks like a date
-#			push @filter, "((timestamp 'epoch' + created * interval '1 second')::date " .
-#				" = ?::date or who ilike ? or change ilike ?)";
-#			push @bind, $s, "%$s%", "%$s%";
-#		} elsif ($s =~ /^XY(\d+)-(\d+)$/) {
-#			# looks like a month
-#			push @filter,
-#				"((timestamp 'epoch' + created * interval '1 second')::date ".
-#				"<= (date_trunc('month', ?::date) + ".
-#				"interval '1 month' - interval '1 day')::date ".
-#				"and ".
-#				"(timestamp 'epoch' + created * interval '1 second')::date ".
-#				">= ?::date or who ilike ? or change ilike ?)";
-#			push @bind, "$s-01", "$s-01", "%$s%", "%$s%";
-#=cut
-#
-#	my @e = @{
-#		$dbh->selectall_arrayref("select * " .
-#			" from changelog where " .
-#			join(" and ", @filter) . " order by created desc, id limit ? offset ?",
-#			{Slice=>{}}, 't', @bind, $pagesize + 1, $page * $pagesize)
-#		|| []
-#	};
-#
-#	my $next = 0;
-#	if (@e > $pagesize) {
-#		pop @e;
-#		$next = 1;
-#	}
-#	return {
-#		p => $page,
-#		n => $next,
-#		e => \@e,
-#	};
-#}
-#
+sub handle_split
+{
+    my $c = shift;
+    my $ip = $c->param("ip") || "";
+    return $c->render( json => { error => "split IP must be specified" } ) unless $ip;
+    return $c->render( json => { error => "invalid split IP" } )           unless $ip =~ /^$RE{net}{IPv4}$/;
+    my $dbh = $c->dbh;
+    my $nf  = db_fetch {
+        my $n : networks;
+        $n->invalidated == 0;
+        inet_contains( $n->net, $ip );
+    };
+    return $c->render( json => { error => "network to split not found" } ) unless $nf;
+    return $c->render( json => { error => "Permission \"net\" denied" } ) unless $c->perms->check( "net", $nf->{class_id} );
+    my $net = $nf->{net};
+    my $n   = $c->N($net);
+    return $c->render( json => { error => "invalid network to split" } ) unless $n;
+    my $sz;
+    for my $sz0 ( reverse( 8 .. 32 ) ) {
+        $sz = $sz0;
+        my $sp = $c->N("$ip/$sz");
+        last unless $sp;
+        last unless $sp->broadcast->addr eq $ip;
+        last if $sz < $n->masklen;
+    }
+    return $c->render( json => { error => "unable to find split point [sz $sz]" } ) if $sz >= 32;
+    $sz++;
+    my $extra_msg = $sz >= 31 ? "The split will have networks of size $sz - this looks like a mistake" : "";
+    my $sn        = $c->N("$ip/$sz")->network;
+    my @n         = $c->ip->calculate_gaps( $n, $sn );
+    @n = sort { $a cmp $b } ( @n, $sn );
+    if ( $c->param("confirmed") ) {
+        my $when  = time;
+        my $who   = $c->current_user;
+        my $descr = $nf->{descr};
+        $descr = "[split] $descr" unless $descr =~ /^\[split\]/;
+        my $tags = $c->tags->fetch_string_for_id( $nf->{id} );
+        for my $nn (@n) {
+            my $new_id = db_fetch { return `nextval('networks_id_seq')`; };
+            db_insert 'networks',
+              {
+                id          => $new_id,
+                net         => "$nn",
+                class_id    => $nf->{class_id},
+                descr       => $descr,
+                created     => $when,
+                invalidated => 0,
+                created_by  => $who,
+              };
+            $c->tags->insert_string( $new_id, $tags );
+            $c->log->change( network => "Added network $nn (via split)", when => $when );
+            my $ip_network = $nn->network->addr;
+            unless ( db_fetch { my $i : ips; $i->ip == $ip_network; $i->invalidated == 0; return $i->id; } ) {
+                my $id = db_fetch { return `nextval('ips_id_seq')`; };
+                db_insert 'ips',
+                  {
+                    id          => $id,
+                    ip          => $ip_network,
+                    descr       => "Subnet",
+                    created     => $when,
+                    invalidated => 0,
+                    created_by  => $who,
+                  };
+                $c->log->change( ip => "Recorded IP $ip_network as a subnet address (via split)", when => $when );
+            }
+            my $ip_broadcast = $nn->broadcast->addr;
+            unless ( db_fetch { my $i : ips; $i->ip == $ip_broadcast; $i->invalidated == 0; return $i->id; } ) {
+                my $id = db_fetch { return `nextval('ips_id_seq')`; };
+                db_insert 'ips',
+                  {
+                    id          => $id,
+                    ip          => $ip_broadcast,
+                    descr       => "Broadcast",
+                    created     => $when,
+                    invalidated => 0,
+                    created_by  => $who,
+                  };
+                $c->log->change( ip => "Recorded IP $ip_broadcast as a broadcast address (via split)", when => $when );
+            }
+        }
+        db_update {
+            my $n : networks;
+            $n->invalidated == 0;
+            $n->net == $net;
+
+            $n->invalidated    = $when;
+            $n->invalidated_by = $who;
+        };
+        my @new = db_fetch {
+            my $cr : classes_ranges;
+            my $n : networks;
+            my $c : classes;
+            inet_contains( $net, $n->net );
+            $n->invalidated == 0;
+            inet_contains( $cr->net, $n->net );
+            $c->id == $n->class_id;
+            sort $n->net;
+            return (
+                $n->id, $n->net,
+                $n->class_id,
+                class_name => $c->name,
+                $n->descr, $n->created, $n->created_by,
+                parent_class_id => $cr->class_id,
+                wrong_class     => ( $n->class_id != $cr->class_id )
+            );
+        };
+        unless (@new) {
+            $dbh->rollback;
+            return $c->render( json => { error => "Cannot split network $net" } );
+        }
+        my %c = map { $_->{net} => $_ } @new;
+        for my $new_net (@new) {
+            $new_net->{descr} = $c->u2p( $new_net->{descr} || "" );
+            $new_net->{tags} = $c->u2p($tags);
+            $new_net->{created_by} ||= "";
+
+            # find mergeable neighbours
+            my $this = $c->N( $new_net->{net} );
+            my $super = $c->N( $this->network->addr . "/" . ( $this->masklen - 1 ) );
+            my $neighbour;
+            if ( $super->network->addr eq $this->network->addr ) {
+                $neighbour = $c->N( $super->broadcast->addr . "/" . $this->masklen )->network;
+            } else {
+                $neighbour = $c->N( $super->network->addr . "/" . $this->masklen );
+            }
+            my $merge_with = $c{$neighbour};
+            if ( $merge_with && $merge_with->{class_id} == $new_net->{class_id} ) {
+                $new_net->{merge_with} = "$neighbour";
+            }
+
+            $c->gen_calculated_params($new_net);
+        }
+        $c->log->change( network => "Removed network $net (via split)", when => $when );
+        $dbh->commit;
+        return $c->render( json => { msg => "Network $net successfully split", n => \@new } );
+    } else {
+        @n = map {"$_"} @n;
+        $c->render( json => { n => \@n, o => "$n", extra_msg => $extra_msg } );
+    }
+}
+
+sub handle_changelog
+{
+    my $c = shift;
+    my $filter = $c->param("filter") || "";
+    my $page   = $c->param("page")   || 0;
+    $page = 0 if $page < 0;
+    my $pagesize = $c->param("pagesize") || 30;
+    my $dbh = $c->dbh;
+    my $tz = $c->config->{tipp}{timezone};
+
+    my @s = split / /, $filter;
+    for (@s) {s/\s+//g}
+    @s = grep { $_ ne "" } @s;
+
+    my @filter = ('?');
+    my @bind;
+    for my $s (@s) {
+
+        # XXX daylight savings troubles!!!
+        push @filter,
+          "(text(timestamp with time zone 'epoch' at time zone '$tz' + created * interval '1 second') ilike ? "
+          . "or who ilike ? or change ilike ?)";
+        push @bind, "%$s%", "%$s%", "%$s%";
+    }
+    unless ( $c->perms->check("view_changelog") ) {
+        push @filter, "who = ?";
+        push @bind,   remote_user();
+    }
+
+=pod
+This is possibly an efficient but horrible way to match dates.
+The above way is probably inefficient but works good enough.
+
+		if ($s =~ /^XY(\d+)-(\d+)-(\d+)$/) {
+			# looks like a date
+			push @filter, "((timestamp 'epoch' + created * interval '1 second')::date " .
+				" = ?::date or who ilike ? or change ilike ?)";
+			push @bind, $s, "%$s%", "%$s%";
+		} elsif ($s =~ /^XY(\d+)-(\d+)$/) {
+			# looks like a month
+			push @filter,
+				"((timestamp 'epoch' + created * interval '1 second')::date ".
+				"<= (date_trunc('month', ?::date) + ".
+				"interval '1 month' - interval '1 day')::date ".
+				"and ".
+				"(timestamp 'epoch' + created * interval '1 second')::date ".
+				">= ?::date or who ilike ? or change ilike ?)";
+			push @bind, "$s-01", "$s-01", "%$s%", "%$s%";
+=cut
+
+    my @e = @{
+        $dbh->selectall_arrayref(
+            "select * " . " from changelog where " . join( " and ", @filter ) . " order by created desc, id limit ? offset ?",
+            { Slice => {} },
+            't', @bind,
+            $pagesize + 1,
+            $page * $pagesize
+          )
+          || []
+    };
+
+    my $next = 0;
+    if ( @e > $pagesize ) {
+        pop @e;
+        $next = 1;
+    }
+    $c->render( json => { p => $page, n => $next, e => \@e } );
+}
+
 sub handle_nslookup
 {
     my $c = shift;
@@ -1416,57 +1440,58 @@ sub handle_paginate
     }
 }
 
-#sub handle_describe_ip
-#{
-#	my $ip = param("ip") || "";
-#	return {error => "IP must be specified"} unless $ip;
-#	my $ipn = N($ip);
-#	return {error => "invalid IP"} unless $ipn;
-#	$ip = $ipn->ip;  # our canonical form
-#
-#	my $start = param("start") || "";
-#	return {error => "start must be specified"} unless $start;
-#	return {error => "start is not a number"} unless $start =~ /^\d+$/;
-#
-#	my $stop = param("stop") || "";
-#	return {error => "stop must be specified"} unless $stop;
-#	return {error => "stop is not a number"} unless $stop =~ /^\d+$/;
-#
-#	my $dbh = connect_db();
-#	my @info = db_fetch {
-#		my $i : ips;
-#		my $n : networks;
-#		my $c : classes;
-#		$i->ip == $ip;
-#		$i->invalidated >= $start || $i->invalidated == 0;
-#		$stop >= $i->created;
-#		inet_contains($n->net, $ip);
-#		$n->invalidated >= $start || $n->invalidated == 0;
-#		$c->id == $n->class_id;
-#		$stop >= $n->created;
-#		sort $i->created;
-#		return $i, class_name => $c->name;
-#	};
-#	for my $info (@info) {
-#		my $e = db_fetch {
-#			my $e : ip_extras;
-#			$e->id == $info->{id};
-#		};
-#		%$info = (%$info, %$e) if $e;
-#	}
-#	my @net = db_fetch {
-#		my $n : networks;
-#		my $c : classes;
-#		inet_contains($n->net, $ip);
-#		$n->invalidated >= $start || $n->invalidated == 0;
-#		$stop >= $n->created;
-#		$c->id == $n->class_id;
-#		sort $n->created;
-#		return $n, class_name => $c->name;
-#	};
-#	return [@info,@net];
-#}
-#
+sub handle_describe_ip
+{
+    my $c = shift;
+    my $ip = $c->param("ip") || "";
+    return $c->render( json => { error => "IP must be specified" } ) unless $ip;
+    my $ipn = $c->N($ip);
+    return $c->render( json => { error => "invalid IP" } ) unless $ipn;
+    $ip = $ipn->ip;    # our canonical form
+
+    my $start = $c->param("start") || "";
+    return $c->render( json => { error => "start must be specified" } ) unless $start;
+    return $c->render( json => { error => "start is not a number" } )   unless $start =~ /^\d+$/;
+
+    my $stop = $c->param("stop") || "";
+    return $c->render( json => { error => "stop must be specified" } ) unless $stop;
+    return $c->render( json => { error => "stop is not a number" } )   unless $stop =~ /^\d+$/;
+
+    my $dbh  = $c->dbh;
+    my @info = db_fetch {
+        my $i : ips;
+        my $n : networks;
+        my $c : classes;
+        $i->ip == $ip;
+        $i->invalidated >= $start || $i->invalidated == 0;
+        $stop >= $i->created;
+        inet_contains( $n->net, $ip );
+        $n->invalidated >= $start || $n->invalidated == 0;
+        $c->id == $n->class_id;
+        $stop >= $n->created;
+        sort $i->created;
+        return $i, class_name => $c->name;
+    };
+    for my $info (@info) {
+        my $e = db_fetch {
+            my $e : ip_extras;
+            $e->id == $info->{id};
+        };
+        %$info = ( %$info, %$e ) if $e;
+    }
+    my @net = db_fetch {
+        my $n : networks;
+        my $c : classes;
+        inet_contains( $n->net, $ip );
+        $n->invalidated >= $start || $n->invalidated == 0;
+        $stop >= $n->created;
+        $c->id == $n->class_id;
+        sort $n->created;
+        return $n, class_name => $c->name;
+    };
+    $c->render( json => [ @info, @net ] );
+}
+
 #sub handle_ipexport
 #{
 #	my $r;
