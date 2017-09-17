@@ -1556,7 +1556,7 @@ sub handle_update_group
     my $pn      = $c->req->params->names;
     my %globals = map { $_ => 1 } qw(superuser view_changelog view_usage_stats);
     my $gid     = $c->param("gid");
-    return $c->render( json => { error => "gid parameter is required" } ) unless defined gid;
+    return $c->render( json => { error => "gid parameter is required" } ) unless defined $gid;
     my $dbh = $c->dbh;
     my $g   = {};
 
