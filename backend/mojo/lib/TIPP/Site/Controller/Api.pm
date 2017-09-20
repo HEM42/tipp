@@ -755,10 +755,10 @@ sub handle_net_history
         $fake{created_by}  = $hist[-1]->{invalidated_by};
         push @hist, \%fake;
     }
-    for my $c (@hist) {
-        $c->{descr} = u2p( $c->{descr} );
-        $c->{created_by} ||= "";
-        delete $c->{invalidated_by};
+    for my $cc (@hist) {
+        $cc->{descr} = $c->u2p( $cc->{descr} );
+        $cc->{created_by} ||= "";
+        delete $cc->{invalidated_by};
     }
     @hist = reverse @hist;
     $c->render( json => \@hist );
