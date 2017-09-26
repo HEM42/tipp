@@ -9,5 +9,8 @@ test:
 
 	MOJO_MODE=test PERL5LIB="lib" prove t
 
+coverage:
+	PERL5OPT=-MDevel::Cover MOJO_MODE=test PERL5LIB="lib" prove t
+
 clean:
 	dropdb -U $(DB_USER) $(DB_NAME)
