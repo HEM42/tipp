@@ -20,5 +20,28 @@ my $net2 = $t->app->N('10.0.0.128/25');
 my @nets = $t->app->ip->compact($net1,$net2);
 is '10.0.0.0/24', $nets[0], 'Returns correct network';
 
+# Calculating gaps, simple
+my $outer = '10.0.1.0/24';
+my @inner = ('10.0.1.0/25','10.0.1.192/28');
+my @gaps = $t->app->ip->calculate_gaps($outer,@inner);
+test_gaps( [ "10.0.1.128/26", "10.0.1.208/28", "10.0.1.224/27" ], \@gaps );
+
+# Calculating gaps, network outside outer (range below)
+my $outer = '10.0.1.0/24';
+my @inner = ('10.0.0.0/28','10.0.1.0/25','10.0.1.192/28');
+my @gaps = $t->app->ip->calculate_gaps($outer,@inner);
+test_gaps( [ "10.0.1.128/26", "10.0.1.208/28", "10.0.1.224/27" ], \@gaps );
+
+
 $t->app->dbh->rollback;
 done_testing();
+
+sub test_gaps
+{
+    my ( $expected, $gaps ) = @_;
+
+    for my $gap (@$gaps) {
+		my $exp = shift @$expected;
+		is $exp, $gap, "Expected gap returned : $gap";
+    }
+}
