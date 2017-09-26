@@ -15,7 +15,7 @@ sub register
         @cmds,              'ip-history',      'get-ip',         'edit-ip',         'new-network',      'edit-net',
         'merge-net',        'suggest-network', 'top-level-nets', 'fetch-settings',  'remove-net',       'tags-summary',
         'networks-for-tag', 'update-user',     'update-group',   'add-class-range', 'edit-class-range', 'ip-net',
-        'descripe-ip',      'net-history'
+        'descripe-ip',      'net-history',     'remove-class-range'
       )
     {
         ( my $path = $cmd ) =~ s/-/_/g;
