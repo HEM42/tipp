@@ -101,7 +101,7 @@ sub register
 }
 
 package TIPP::NetAddr::IP;
-use NetAddr::IP;
+use NetAddr::IP qw(:lower);
 use base 'NetAddr::IP';
 use overload '""' => sub { $_[0]->version == 4 ? $_[0]->cidr : $_[0]->short . "/" . $_[0]->masklen };
 
