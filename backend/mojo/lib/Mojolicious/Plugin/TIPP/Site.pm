@@ -43,6 +43,18 @@ sub register {
     $app->hook(
         before_dispatch => sub {
             my $c = shift;
+            $c->dbh->{AutoCommit} = 0;
+
+            unless ( $c->dbh->ping ) {
+                $c->app->log->info('reconnecting');
+
+                my $dbh =
+                  DBI->connect( $c->app->db_dsn, $c->app->db_user, $c->app->db_pass, { AutoCommit => 0, pg_enable_utf8 => 1 } );
+
+                $c->app->{_dbh_dbh} = $dbh;
+                $c->app->log->info('connected') if $c->dbh->ping;
+
+            }
 
             # canonicalize path
             my $what = $c->req->param('what');                                          # old api style, support replacement of the backend
@@ -51,6 +63,13 @@ sub register {
             # get the 'what' part
             my @parts = @{ $c->req->url->path->parts };
             $c->stash( what => $parts[-1] || '' );
+
+        }
+    );
+    $app->hook(
+        after_dispatch => sub {
+            my $c = shift;
+            $c->dbh->{AutoCommit} = 1;
         }
     );
 
