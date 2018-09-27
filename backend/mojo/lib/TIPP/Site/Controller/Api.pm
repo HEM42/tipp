@@ -1047,7 +1047,14 @@ sub handle_search
     my @s = grep { $_ ne "" } split /\s+/, $s;
     return $c->render( json => { error => "blank search string" } ) unless @s;
 
-    my %r = ( $c->search->networks(0, @s), $c->search->networks(1, @s), $c->search->ips( 0, @s ), $c->search->ips( 1, @s ) );
+    my %r = (
+        $c->search->classes_ranges(@s),
+        $c->search->networks( 0, @s ),
+        $c->search->networks( 1, @s ),
+        $c->search->ips( 0, @s ),
+        $c->search->ips( 1, @s )
+    );
+    $r{cr} ||= [];
     $r{n}  ||= [];
     $r{i}  ||= [];
     $r{hn} ||= [];

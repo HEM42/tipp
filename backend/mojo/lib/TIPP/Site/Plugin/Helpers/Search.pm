@@ -76,6 +76,7 @@ sub register
                   )
                   || []
             };
+
             if ( @n < 50 || $c->param("all") ) {
                 my $id2tag = $c->tags->fetch_for_networks(@n);
                 my @ids = map { $_->{id} } @n;
@@ -211,6 +212,102 @@ sub register
                     push @r, ip_message => "Too many IPs found, try to limit the search, or {view all results anyway}.";
                 }
                 return @r;
+            }
+        }
+    );
+
+    $app->helper(
+        'search.classes_ranges',
+        sub {
+            my ( $c, @s ) = @_;
+            my $only = $c->param("only") || "";
+            return () if $only && $only ne "net";
+            my @net_sql = ('cr.class_id = c.id');
+            my $name    = "cr";
+
+            my @net_bind;
+            for my $t (@s) {
+                my $term_sql;
+                if ( $t =~ /^(\d+)\.$/ && $1 > 0 && $1 <= 255 ) {
+                    $term_sql = "cr.net <<= ?";
+                    push @net_bind, "$1.0.0.0/8";
+                } elsif ( $t =~ /^(\d+)\.(\d+)\.?$/ && $1 > 0 && $1 <= 255 && $2 <= 255 ) {
+                    $term_sql = "(cr.net <<= ? or cr.net >>= ?)";
+                    push @net_bind, "$1.$2.0.0/16", "$1.$2.0.0/16";
+                } elsif ( $t =~ /^(\d+)\.(\d+)\.(\d+)\.?$/ && $1 > 0 && $1 <= 255 && $2 <= 255 && $3 <= 255 ) {
+                    $term_sql = "(cr.net <<= ? or cr.net >>= ?)";
+                    push @net_bind, "$1.$2.$3.0/24", "$1.$2.$3.0/24";
+                } elsif ( $t =~ /^$RE{net}{IPv4}$/ ) {
+                    $term_sql = "(cr.net >>= ?)";
+                    push @net_bind, $t;
+                } elsif ( $t =~ /^$RE{net}{IPv4}\/(\d+)$/ && $1 <= 32 ) {
+                    $term_sql = "(cr.net <<= ? or cr.net >>= ?)";
+                    push @net_bind, $t, $t;
+                } else {
+                    my $nn = $c->N($t);
+                    if ( $nn && $nn->version == 6 ) {
+                        if ( $nn->masklen < 128 ) {
+                            $term_sql = "(cr.net <<= ? or cr.net >>= ?)";
+                            @net_bind, "$nn", "$nn";
+                        } else {
+                            $term_sql = "(cr.net >>= ?)";
+                            push @net_bind, "$nn";
+                        }
+                    }
+                }
+                if ($term_sql) {
+                    push @net_sql, "(($term_sql) or (cr.descr ilike ?))";
+                } else {
+                    push @net_sql, "cr.descr ilike ?";
+                }
+                push @net_bind, "%$t%";
+            }
+
+            my $dbh = $c->dbh;
+            my @cr  = @{
+                $dbh->selectall_arrayref(
+                    "select "
+                      . "cr.net, cr.id, cr.class_id, c.name as class_name, cr.descr "
+                      . " from classes c,classes_ranges cr where "
+                      . join( " and ", @net_sql )
+                      . " order by net",
+                    { Slice => {} },
+                    @net_bind
+                  )
+                  || []
+            };
+
+            if ( @cr < 50 || $c->param("all") ) {
+                my $id2tag = $c->tags->fetch_for_networks(@cr);
+                my @ids    = map { $_->{id} } @cr;
+                my %used;
+                if (@cr) {
+                    %used = db_fetch {
+                        my $cr : classes_ranges;
+                        my $n : networks;
+                        $cr->id < -@ids;
+                        join $cr < $n => db_fetch {
+                            inet_contains( $cr->net, $n->net );
+                            $n->invalidated == 0;
+                        };
+                        return -k $cr->id, sum( 2**( 2**( family( $n->net ) + 1 ) - masklen( $n->net ) ) );
+                    };
+                }
+
+                for my $cr (@cr) {
+                    $cr->{net} =~ /\/(\d+)/;
+                    $c->gen_calculated_params($cr);
+                    $cr->{used}      = $used{ $cr->{id} } || 0;
+                    $cr->{addresses} = 2**( 2**( $cr->{f} + 1 ) - $1 ) - $cr->{used};
+                    $cr->{descr}     = $c->u2p( $cr->{descr} || "" );
+                }
+
+                return ( $name => \@cr, "n$name" => scalar(@cr) );
+            } else {
+                return (
+                    "n$name"    => scalar(@cr),
+                    net_message => "Too many networks found, try to limit the search, or {view all results anyway}."
+                );
             }
         }
     );
