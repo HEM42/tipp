@@ -125,12 +125,12 @@ sub handle_net
         @c = db_fetch {
             my $cr : classes_ranges;
             my $n : networks;
-            my $c : classes;
+            my $cc : classes;
             $cr->class_id != $class_id;
             $n->class_id == $class_id;
             $n->invalidated == 0;
             inet_contains( $cr->net, $n->net );
-            $c->id == $n->class_id;
+            $cc->id == $n->class_id;
             sort $n->net;
             return (
                 $n->id, $n->net,
@@ -147,17 +147,17 @@ sub handle_net
         @c = db_fetch {
             my $cr : classes_ranges;
             my $n : networks;
-            my $c : classes;
+            my $cc : classes;
             $cr->id == $id unless $limit;
             inet_contains( $limit, $n->net ) if $limit;
             inet_contains( $cr->net, $n->net );
             $n->invalidated == 0;
-            $c->id == $n->class_id;
+            $cc->id == $n->class_id;
             sort $n->net;
             return (
                 $n->id, $n->net,
                 $n->class_id,
-                class_name => $c->name,
+                class_name => $cc->name,
                 $n->descr, $n->created, $n->created_by,
                 parent_class_id => $cr->class_id,
                 parent_range_id => $cr->id,
@@ -168,11 +168,11 @@ sub handle_net
         if ($free) {
             my @r = db_fetch {
                 my $cr : classes_ranges;
-                my $c : classes;
+                my $cc : classes;
                 $cr->id == $id unless $limit;
                 inet_contains( $limit, $cr->net ) || inet_contains( $cr->net, $limit ) if $limit;
-                $cr->class_id == $c->id;
-                return $cr->net, $cr->class_id, $cr->descr, class_name => $c->name;
+                $cr->class_id == $cc->id;
+                return $cr->net, $cr->class_id, $cr->descr, class_name => $cc->name;
             };
             return $c->render( json => { error => "Cannot find class_range" } ) unless @r;
             my @miss = $c->ip->calculate_gaps( $limit ? $limit : $r[0]->{net}, map { $_->{net} } @c );
@@ -227,7 +227,11 @@ sub handle_net
         $c->gen_calculated_params($cc);
     }
 
-    $c->render( json => \@c );
+    if ( $p{do_not_render} ) {
+        return \@c;
+    } else {
+        $c->render( json => \@c );
+    }
 }
 
 sub handle_new_network
@@ -258,9 +262,9 @@ sub handle_new_network
 
     my $dbh = $c->dbh;
     my $cid = db_fetch {
-        my $c : classes;
-        $c->id == $class_id;
-        return $c->id;
+        my $cc : classes;
+        $cc->id == $class_id;
+        return $cc->id;
     };
     return $c->render( json => { error => "Non-existing network class" } ) unless $cid;
     my $crid = db_fetch {
@@ -297,16 +301,16 @@ sub handle_new_network
     my $new_net = db_fetch {
         my $cr : classes_ranges;
         my $n : networks;
-        my $c : classes;
+        my $cc : classes;
         $n->net == $net;
         $n->invalidated == 0;
         inet_contains( $cr->net, $n->net );
-        $c->id == $n->class_id;
+        $cc->id == $n->class_id;
         sort $n->net;
         return (
             $n->id, $n->net,
             $n->class_id,
-            class_name => $c->name,
+            class_name => $cc->name,
             $n->descr, $n->created, $n->created_by,
             parent_class_id => $cr->class_id,
             wrong_class     => ( $n->class_id != $cr->class_id )
@@ -319,7 +323,7 @@ sub handle_new_network
     $c->tags->insert_string( $new_net->{id}, $tags );
     $c->log->change( network => "Allocated new network $net of class $new_net->{class_name}", when => $when );
     if ( $limit && !$in_class_range ) {
-        my $ret = handle_net( free => 1, limit => $limit );
+        my $ret = $c->handle_net( free => 1, limit => $limit, do_not_render => 1 );
         if ( ( ref($ret) || "" ) ne "ARRAY" ) {
             $dbh->rollback;
             return $c->render( json => $ret );
