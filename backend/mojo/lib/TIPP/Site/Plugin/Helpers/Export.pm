@@ -13,6 +13,11 @@ sub register
         sub {
             my ( $c, $range_net, %p ) = @_;
             my $dbh  = $c->dbh;
+            my $range_descr = db_fetch {
+                my $cr : classes_ranges;
+                $cr->net eq $range_net;
+                return $cr->descr;
+            };
             my @nets = db_fetch {
                 my $n : networks;
                 $n->invalidated == 0;
@@ -39,7 +44,7 @@ sub register
                     return $r;
                 }
             }
-            my $filename = $range_net;
+            my $filename = sprintf "%s_%s", $range_descr, $range_net;
             $filename =~ s/\//-/g;
             return {
                 filename => "$filename.csv",
