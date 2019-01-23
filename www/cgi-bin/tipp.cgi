@@ -1564,7 +1564,8 @@ sub handle_update_group
 			my $g : groups;
 
 			$g->id == $gid;
-		} || "{}";
+		};
+		$old ||= "{}";
 
 		my $old_g = expand_permissions(eval { decode_json($old->{permissions}); } || {});
 		my $new_g = expand_permissions($g);
@@ -1608,7 +1609,8 @@ sub handle_update_group
 			my $g : groups;
 
 			$g->id == $new_id;
-		} || "{}";
+		};
+		$new ||= "{}";
 		$new->{permissions} = expand_permissions(eval { decode_json($new->{permissions}); } || {});
 		return $new;
 	}
@@ -2256,14 +2258,16 @@ sub get_permissions
 
 		$u->name eq $user;
 		return $u->group_id;
-	} || $TIPP::default_group_id;
+	};
+	$gid ||= $TIPP::default_group_id;
 
 	my $json_permissions = db_fetch {
 		my $g : groups;
 
 		$g->id == $gid;
 		return $g->permissions;
-	} || "{}";
+	};
+	$json_permissions ||= "{}";
 
 	return expand_permissions(eval { decode_json($json_permissions); } || {});
 }
