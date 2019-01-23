@@ -32,7 +32,7 @@ sub register
                 $g->id == $gid;
                 return $g->permissions;
             };
-            $json_permissions || "{}";
+            $json_permissions ||= "{}";
 
             return $c->perms->expand( eval { decode_json($json_permissions); } || {} );
         }
