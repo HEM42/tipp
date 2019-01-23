@@ -1525,7 +1525,7 @@ sub handle_ipexport
 
     my $filename = sprintf "%s_%s.csv", $r->{filename}, DateTime->now->ymd;
     $c->res->headers->content_disposition("attachment; filename=$filename;");
-    $c->render( data => $r->{content}, format => 'csv' );
+    $c->render( data => $r->{content}->join("\n"), format => 'csv' );
 }
 
 sub handle_tags_summary

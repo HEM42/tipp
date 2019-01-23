@@ -48,7 +48,7 @@ sub register
             $filename =~ s/\//-/g;
             return {
                 filename => "$filename.csv",
-                content  => \@csv,
+                content  => Mojo::Collection->new(@csv),
             };
         }
     );
@@ -183,7 +183,7 @@ sub register
             $filename =~ s/\//-/g;
             return {
                 filename => "$filename.csv",
-                content  => \@csv,
+                content  => Mojo::Collection->new(@csv),
             };
         }
     );
