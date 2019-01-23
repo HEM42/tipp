@@ -23,14 +23,16 @@ sub register
 
                 $u->name eq $user;
                 return $u->group_id;
-            } || $default_group_id;
+            };
+            $gid ||= $default_group_id;
 
             my $json_permissions = db_fetch {
                 my $g : groups;
 
                 $g->id == $gid;
                 return $g->permissions;
-            } || "{}";
+            };
+            $json_permissions || "{}";
 
             return $c->perms->expand( eval { decode_json($json_permissions); } || {} );
         }
