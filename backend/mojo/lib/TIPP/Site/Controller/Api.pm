@@ -1648,7 +1648,8 @@ sub handle_update_group
             my $g : groups;
 
             $g->id == $gid;
-        } || "{}";
+        };
+        $old ||= "{}";
 
         my $old_g    = $c->perms->expand( eval { decode_json( $old->{permissions} ); } || {} );
         my $new_g    = $c->perms->expand($g);
@@ -1695,7 +1696,8 @@ sub handle_update_group
             my $g : groups;
 
             $g->id == $new_id;
-        } || "{}";
+        };
+        $new ||= "{}";
         $new->{permissions} = $c->perms->expand( eval { decode_json( $new->{permissions} ); } || {} );
         return $c->render( json => $new );
     }
