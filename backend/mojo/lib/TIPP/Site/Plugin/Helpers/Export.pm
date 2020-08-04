@@ -12,7 +12,7 @@ sub register
         'export.range',
         sub {
             my ( $c, $range_net, %p ) = @_;
-            my $dbh  = $c->dbh;
+            my $dbh  = $c->pg->db->dbh;
             my $range_descr = db_fetch {
                 my $cr : classes_ranges;
                 $cr->net eq $range_net;
@@ -58,7 +58,7 @@ sub register
         sub {
             my ( $c, $net_net, %p ) = @_;
 
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             my $net = db_fetch {
                 my $n : networks;
                 my $c : classes;

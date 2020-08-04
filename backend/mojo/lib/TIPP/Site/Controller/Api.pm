@@ -5,7 +5,7 @@ use Data::Printer alias => 'pp', use_prototypes => 0, colored => 1;
 
 use Data::Compare;
 use DateTime;
-use DBIx::Perlish;
+use DBIx::Perlish ':all';
 use Mojo::JSON qw/encode_json decode_json/;
 use Net::DNS::Resolver;
 use Regexp::Common 'net';
@@ -41,7 +41,7 @@ sub handle_root
         return;
     }
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my @c   = db_fetch {
         my $t : classes;
         sort $t->ord;
@@ -55,16 +55,16 @@ sub handle_class
     my $c = shift;
     my $id = $c->param('id') || 0;
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
 
 #select cr.id,cr.net,cr.class_id,cr.descr,sum(2^(32-masklen(n.net))) from classes_ranges cr left join networks n on inet_contains(cr.net, n.net) and n.invalidated = 0 where cr.class_id = 1 group by cr.id,cr.net,cr.class_id,cr.descr;
     my @cc = db_fetch {
         my $cr : classes_ranges;
         my $n : networks;
         $cr->class_id == $id;
-        join $cr < $n => db_fetch {
-            inet_contains( $cr->net, $n->net );
+        join $cr < $n => subselect {
             $n->invalidated == 0;
+            inet_contains( $cr->net, $n->net );
         };
         sort $cr->net;
         return $cr->id, $cr->net, $cr->class_id, $cr->descr,
@@ -95,7 +95,7 @@ sub handle_top_level_nets
 {
     my $c = shift;
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my @c = map { $c->N($_) }
       db_fetch {
         my $t : classes_ranges;
@@ -119,7 +119,7 @@ sub handle_net
     my $misclassified = $c->jsparam("misclassified");
     my $class_id      = $c->jsparam("class_id");
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my @c;
     if ($misclassified) {
         @c = db_fetch {
@@ -260,7 +260,7 @@ sub handle_new_network
         return $c->render( json => { error => "Network is not within $limit" } ) unless $n_limit->contains($nn);
     }
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my $cid = db_fetch {
         my $cc : classes;
         $cc->id == $class_id;
@@ -321,7 +321,7 @@ sub handle_new_network
         return $c->render( json => { error => "Cannot insert network" } );
     }
     $c->tags->insert_string( $new_net->{id}, $tags );
-    $c->log->change( network => "Allocated new network $net of class $new_net->{class_name}", when => $when );
+    $c->changelog( network => "Allocated new network $net of class $new_net->{class_name}", when => $when );
     if ( $limit && !$in_class_range ) {
         my $ret = $c->handle_net( free => 1, limit => $limit, do_not_render => 1 );
         if ( ( ref($ret) || "" ) ne "ARRAY" ) {
@@ -344,7 +344,7 @@ sub handle_new_network
 sub handle_edit_net
 {
     my $c        = shift;
-    my $dbh      = $c->dbh;
+    my $dbh      = $c->pg->db->dbh;
     my $id       = $c->param("id");
     my $class_id = $c->param("class_id");
     my $descr    = $c->u2p( $c->param("descr") );
@@ -379,7 +379,7 @@ sub handle_edit_net
           };
         $c->tags->insert_string( $new_id, $tags );
         $msg = "Network $net->{net} updated successfully";
-        $c->log->change( network => "Modified network $net->{net}", when => $when );
+        $c->changelog( network => "Modified network $net->{net}", when => $when );
     } else {
         $msg = "Network $net->{net} was not updated because nothing has changed";
     }
@@ -417,7 +417,7 @@ sub handle_edit_net
 sub handle_merge_net
 {
     my $c   = shift;
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
 
     my $id = $c->param("id");
 
@@ -480,8 +480,8 @@ sub handle_merge_net
         $n->invalidated_by = $who;
     };
     my $nn = "$super";
-    $c->log->change( network => "Removed network $n0 (it was merged with $n1 into $nn)", when => $when );
-    $c->log->change( network => "Removed network $n1 (it was merged with $n0 into $nn)", when => $when );
+    $c->changelog( network => "Removed network $n0 (it was merged with $n1 into $nn)", when => $when );
+    $c->changelog( network => "Removed network $n1 (it was merged with $n0 into $nn)", when => $when );
 
     my $new_net = db_fetch {
         my $cr : classes_ranges;
@@ -508,7 +508,7 @@ sub handle_merge_net
 
     $c->tags->insert_string( $new_net->{id}, $tags );
 
-    $c->log->change( network => "Added network $nn (via merge of $n0 and $n1)", when => $when );
+    $c->changelog( network => "Added network $nn (via merge of $n0 and $n1)", when => $when );
     $dbh->commit;
     my $msg = "Networks $n0 and $n1 successfully merged into $nn";
 
@@ -523,7 +523,7 @@ sub handle_merge_net
 sub handle_edit_class_range
 {
     my $c        = shift;
-    my $dbh      = $c->dbh;
+    my $dbh      = $c->pg->db->dbh;
     my $id       = $c->param("id");
     my $class_id = $c->param("class_id");
     my $descr    = $c->u2p( $c->param("descr") );
@@ -546,7 +546,7 @@ sub handle_edit_class_range
             $cr->class_id = $class_id;
         };
         $msg = "Class range $range->{net} updated successfully";
-        $c->log->change( range => "Modified class-range $range->{net}", when => $when );
+        $c->changelog( range => "Modified class-range $range->{net}", when => $when );
     } else {
         $msg = "Class range $range->{net} was not updated because nothing has changed";
     }
@@ -555,7 +555,7 @@ sub handle_edit_class_range
         my $n : networks;
 
         $cr->id == $id;
-        join $cr < $n => db_fetch {
+        join $cr < $n => subselect {
             inet_contains( $cr->net, $n->net );
             $n->invalidated == 0;
         };
@@ -578,7 +578,7 @@ sub handle_edit_class_range
 sub handle_add_class_range
 {
     my $c        = shift;
-    my $dbh      = $c->dbh;
+    my $dbh      = $c->pg->db->dbh;
     my $class_id = $c->param("class_id");
     my $descr    = $c->u2p( $c->param("descr") );
     return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check( "range", $class_id );
@@ -616,14 +616,14 @@ sub handle_add_class_range
       };
 
     my $msg = "Class range $net created successfully";
-    $c->log->change( range => "Created class-range $net", when => $when );
+    $c->changelog( range => "Created class-range $net", when => $when );
 
     my $new_range = db_fetch {
         my $cr : classes_ranges;
         my $n : networks;
 
         $cr->net == $net;
-        join $cr < $n => db_fetch {
+        join $cr < $n => subselect {
             inet_contains( $cr->net, $n->net );
             $n->invalidated == 0;
         };
@@ -648,7 +648,7 @@ sub handle_add_class_range
 sub handle_remove_class_range
 {
     my $c   = shift;
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my $id  = $c->param("id");
 
     my $range = db_fetch {
@@ -656,7 +656,7 @@ sub handle_remove_class_range
         my $n : networks;
 
         $cr->id == $id;
-        join $cr < $n => db_fetch {
+        join $cr < $n => subselect {
             inet_contains( $cr->net, $n->net );
             $n->invalidated == 0;
         };
@@ -673,7 +673,7 @@ sub handle_remove_class_range
         my $cr : classes_ranges;
         $cr->id == $id;
     };
-    $c->log->change( range => "Removed class-range $range->{net}", when => $when );
+    $c->changelog( range => "Removed class-range $range->{net}", when => $when );
     $dbh->commit;
     $c->render( json => { msg => "Class range $range->{net} removed successfully" } );
 }
@@ -682,7 +682,7 @@ sub handle_ip_net
 {
     my $c   = shift;
     my $ip  = $c->param("ip") || return;
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my $net = db_fetch {
         my $cr : classes_ranges;
         my $n : networks;
@@ -710,7 +710,7 @@ sub handle_ip_net
 sub handle_net_history
 {
     my $c   = shift;
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my $nn  = $c->param("net") || "";
     my $net = db_fetch { my $n : networks; $n->net == $nn; return $n->net; };
     return $c->render( json => { error => "No network found, strange" } ) unless $net;
@@ -785,11 +785,11 @@ sub get_addresses
 {
     my ( $c, $net ) = @_;
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my @dip = db_fetch {
         my $ip : ips;
         my $ipe : ip_extras;
-        join $ip < $ipe => db_fetch { $ip->id == $ipe->id };
+        join $ip < $ipe => subselect { $ip->id == $ipe->id };
         $ip->invalidated == 0;
         inet_contains( $net, $ip->ip );
     };
@@ -842,12 +842,12 @@ sub handle_ip_history
     return $c->render( json => { error => "invalid IP" } ) unless $ipn;
     $ip = $ipn->ip;    # our canonical form
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my @ip  = db_fetch {
         my $i : ips;
         my $e : ip_extras;
 
-        join $i < $e => db_fetch { $i->id == $e->id };
+        join $i < $e => subselect { $i->id == $e->id };
         $i->ip == $ip;
 
         sort $i->created;
@@ -927,7 +927,7 @@ sub handle_edit_ip
     return $c->render( json => { error => "invalid IP" } ) unless $ipn;
     $p{ip} = $ipn->ip;    # our canonical form
 
-    my $dbh    = $c->dbh;
+    my $dbh    = $c->pg->db->dbh;
     my $within = db_fetch {
         my $n : networks;
         inet_contains( $n->net, $p{ip} );
@@ -995,10 +995,10 @@ sub handle_edit_ip
                 comments => $p{comments},
               };
         }
-        $c->log->change( ip => "Modified IP $p{ip}", when => $when );
+        $c->changelog( ip => "Modified IP $p{ip}", when => $when );
     } else {
         $msg = "IP $p{ip} removed successfully";
-        $c->log->change( ip => "Removed IP $p{ip}", when => $when );
+        $c->changelog( ip => "Removed IP $p{ip}", when => $when );
     }
     my $new = $c->ip->info( $p{ip} );
     $new->{msg} = $msg;
@@ -1011,7 +1011,7 @@ sub handle_remove_net
     my $c  = shift;
     my $id = $c->param("id");
 
-    my $dbh     = $c->dbh;
+    my $dbh     = $c->pg->db->dbh;
     my $netinfo = db_fetch {
         my $n : networks;
         $n->id == $id;
@@ -1037,7 +1037,7 @@ sub handle_remove_net
         $n->invalidated    = $when;
         $n->invalidated_by = $who;
     };
-    $c->log->change( network => "Removed network $net", when => $when );
+    $c->changelog( network => "Removed network $net", when => $when );
     $dbh->commit;
     $c->render( json => { msg => "Network $net successfully removed" } );
 }
@@ -1079,7 +1079,7 @@ sub handle_suggest_network
     return $c->render( json => { error => "Bad network size" } ) unless $sz =~ /^\d+$/;
     return $c->render( json => { error => "Invalid network size" } ) unless $sz >= 8 && $sz <= 128;
     my ( %cr, @all );
-    my $dbh       = $c->dbh;
+    my $dbh       = $c->pg->db->dbh;
     my $ipv6_only = $sz > 32;
     if ($limit) {
         my $n_limit = $c->N($limit);
@@ -1103,7 +1103,7 @@ sub handle_suggest_network
 
             $cr->class_id == $id;
             family( $cr->net ) == 6 if $ipv6_only;
-            join $cr < $n => db_fetch {
+            join $cr < $n => subselect {
                 inet_contains( $cr->net, $n->net );
                 $n->invalidated == 0;
                 family( $n->net ) == 6 if $ipv6_only;
@@ -1154,7 +1154,7 @@ sub handle_split
     my $ip = $c->param("ip") || "";
     return $c->render( json => { error => "split IP must be specified" } ) unless $ip;
     return $c->render( json => { error => "invalid split IP" } )           unless $ip =~ /^$RE{net}{IPv4}$/;
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my $nf  = db_fetch {
         my $n : networks;
         $n->invalidated == 0;
@@ -1198,7 +1198,7 @@ sub handle_split
                 created_by  => $who,
               };
             $c->tags->insert_string( $new_id, $tags );
-            $c->log->change( network => "Added network $nn (via split)", when => $when );
+            $c->changelog( network => "Added network $nn (via split)", when => $when );
             my $ip_network = $nn->network->addr;
             unless ( db_fetch { my $i : ips; $i->ip == $ip_network; $i->invalidated == 0; return $i->id; } ) {
                 my $id = db_fetch { return `nextval('ips_id_seq')`; };
@@ -1211,7 +1211,7 @@ sub handle_split
                     invalidated => 0,
                     created_by  => $who,
                   };
-                $c->log->change( ip => "Recorded IP $ip_network as a subnet address (via split)", when => $when );
+                $c->changelog( ip => "Recorded IP $ip_network as a subnet address (via split)", when => $when );
             }
             my $ip_broadcast = $nn->broadcast->addr;
             unless ( db_fetch { my $i : ips; $i->ip == $ip_broadcast; $i->invalidated == 0; return $i->id; } ) {
@@ -1225,7 +1225,7 @@ sub handle_split
                     invalidated => 0,
                     created_by  => $who,
                   };
-                $c->log->change( ip => "Recorded IP $ip_broadcast as a broadcast address (via split)", when => $when );
+                $c->changelog( ip => "Recorded IP $ip_broadcast as a broadcast address (via split)", when => $when );
             }
         }
         db_update {
@@ -1280,7 +1280,7 @@ sub handle_split
 
             $c->gen_calculated_params($new_net);
         }
-        $c->log->change( network => "Removed network $net (via split)", when => $when );
+        $c->changelog( network => "Removed network $net (via split)", when => $when );
         $dbh->commit;
         return $c->render( json => { msg => "Network $net successfully split", n => \@new } );
     } else {
@@ -1295,13 +1295,13 @@ sub handle_split_class_range
     my $id = $c->param("id") || "";
     return $c->render( json => { error => "split class id must be specified" } ) unless $id;
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my $cf  = db_fetch {
         my $cr : classes_ranges;
         $cr->id == $id;
     };
     return $c->render( json => { error => "class range to split not found" } ) unless $cf;
-    return $c->render( json => { error => "Permission \"class\" denied" } ) unless $c->perms->check( "class", $cf->{class_id} );
+    return $c->render( json => { error => "Permission \"range\" denied" } ) unless $c->perms->check( "range", $cf->{class_id} );
 
     my $net = $c->N($cf->{net});
     my $l = $net->masklen;
@@ -1322,11 +1322,11 @@ sub handle_split_class_range
                 class_id => $cf->{class_id},
                 descr    => $descr,
               };
-            $c->log->change( range => "Added range class $nn (via split)", when => $when );
+            $c->changelog( range => "Added range class $nn (via split)", when => $when );
         }
 
         db_delete { classes_ranges->id == $id };
-        $c->log->change( range => "Removed network $net (via split)", when => $when );
+        $c->changelog( range => "Removed network $net (via split)", when => $when );
         $dbh->commit;
         return $c->render( json => { msg => "Network $net successfully split", n => $n } );
     } else {
@@ -1342,7 +1342,7 @@ sub handle_changelog
     my $page   = $c->param("page") || 0;
     $page = 0 if $page < 0;
     my $pagesize = $c->param("pagesize") || 30;
-    my $dbh      = $c->dbh;
+    my $dbh      = $c->pg->db->dbh;
     my $tz       = $c->config->{tipp}{timezone};
 
     my @s = split / /, $filter;
@@ -1472,7 +1472,7 @@ sub handle_describe_ip
     return $c->render( json => { error => "stop must be specified" } ) unless $stop;
     return $c->render( json => { error => "stop is not a number" } )   unless $stop =~ /^\d+$/;
 
-    my $dbh  = $c->dbh;
+    my $dbh  = $c->pg->db->dbh;
     my @info = db_fetch {
         my $i : ips;
         my $n : networks;
@@ -1545,7 +1545,7 @@ sub handle_fetch_settings
 {
     my $c = shift;
 
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     return { error => "Permission \"superuser\" denied" } unless $c->perms->check("superuser");
     my @users = db_fetch {
         my $u : users;
@@ -1576,7 +1576,7 @@ sub handle_fetch_settings
 sub handle_update_user
 {
     my $c   = shift;
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     return $c->render( json => { error => "Permission \"superuser\" denied" } ) unless $c->perms->check("superuser");
     my $user = $c->param("user");
     return $c->render( json => { error => "user parameter is required" } ) unless defined $user;
@@ -1602,14 +1602,14 @@ sub handle_update_user
 
             $u->group_id = $group_id;
         };
-        $c->log->change( user => "Modified user $user, group $group_id", when => time );
+        $c->changelog( user => "Modified user $user, group $group_id", when => time );
     } else {
         db_insert 'users',
           {
             name     => $user,
             group_id => $group_id,
           };
-        $c->log->change( user => "Created user $user, group $group_id", when => time );
+        $c->changelog( user => "Created user $user, group $group_id", when => time );
     }
     $dbh->commit;
     my $new_u = db_fetch {
@@ -1627,7 +1627,7 @@ sub handle_update_group
     my %globals = map { $_ => 1 } qw(superuser view_changelog view_usage_stats);
     my $gid     = $c->param("gid");
     return $c->render( json => { error => "gid parameter is required" } ) unless defined $gid;
-    my $dbh = $c->dbh;
+    my $dbh = $c->pg->db->dbh;
     my $g   = {};
 
     for my $p (@$pn) {
@@ -1667,7 +1667,7 @@ sub handle_update_group
             $g->permissions = $json_permissions;
             $g->comments    = $comments;
         };
-        $c->log->change( group => "Modified group $old->{name}", when => time );
+        $c->changelog( group => "Modified group $old->{name}", when => time );
         $dbh->commit;
         my $new = $old;
         $new->{permissions} = $g;
@@ -1690,7 +1690,7 @@ sub handle_update_group
             comments    => $comments,
             permissions => encode_json($g),
           };
-        $c->log->change( group => "Created group $group_name", when => time );
+        $c->changelog( group => "Created group $group_name", when => time );
         $dbh->commit;
         my $new = db_fetch {
             my $g : groups;

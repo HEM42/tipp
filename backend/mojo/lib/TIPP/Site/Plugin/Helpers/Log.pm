@@ -9,7 +9,7 @@ sub register
     my ( $me, $app ) = @_;
 
     $app->helper(
-        'log.change',
+        'changelog',
         sub {
             my ( $c, $what, $change, %p ) = @_;
             $what = "N" if $what eq "network";
@@ -19,7 +19,7 @@ sub register
             $what = "U" if $what eq "user";
             $what = "?" unless length($what) == 1;
             my $when = $p{when} || time;
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             db_insert 'changelog',
               {
                 change  => $change,

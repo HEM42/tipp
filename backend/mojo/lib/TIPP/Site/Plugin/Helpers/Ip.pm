@@ -71,7 +71,7 @@ sub register
         sub {
             my $c    = shift;
             my $ip   = shift;
-            my $dbh  = $c->dbh;
+            my $dbh  = $c->pg->db->dbh;
             my $info = db_fetch {
                 my $i : ips;
                 $i->ip == $ip;

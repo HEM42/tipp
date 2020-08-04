@@ -1,4 +1,12 @@
-requires 'Mojolicious'                              '7.46';
+requires 'DBD::Pg';
+requires 'DBIx::Perlish', '>=1.04';
+requires 'Data::Compare';
 requires 'Data::Printer';
+requires 'DateTime';
+requires 'Mojo::Pg';
+requires 'Mojolicious', '>=8.42';
 requires 'Mojolicious::Plugin::ConfigHashMerge';
-requires 'Mojolicious::Plugin::Database';
+requires 'Net::DNS::Resolver';
+requires 'NetAddr::IP';
+requires 'Regexp::Common';
+requires 'Text::CSV_XS';

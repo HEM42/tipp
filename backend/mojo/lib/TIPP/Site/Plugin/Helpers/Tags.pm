@@ -38,7 +38,7 @@ sub register
         sub {
             my $c    = shift;
             my $id   = shift;
-            my $dbh  = $c->dbh;
+            my $dbh  = $c->pg->db->dbh;
             my @tags = db_fetch {
                 my $t : network_tags;
                 $t->net_id == $id;
@@ -60,7 +60,7 @@ sub register
         'tags.insert',
         sub {
             my ( $c, $id, @tags ) = @_;
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             for my $tag (@tags) {
                 db_insert 'network_tags',
                   {
@@ -102,7 +102,7 @@ sub register
             my @ids = @_;
             return {} unless @ids;
             my %id2tag;
-            my $dbh  = $c->dbh;
+            my $dbh  = $c->pg->db->dbh;
             my @tags = db_fetch {
                 my $t : network_tags;
                 $t->net_id < -@ids;
@@ -142,7 +142,7 @@ sub register
         'tags.fetch_summary',
         sub {
             my $c = shift;
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             db_fetch {
                 my $n : networks;
                 my $t : network_tags;
@@ -159,7 +159,7 @@ sub register
         sub {
             my $c = shift;
             my $tag = shift;
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             my @n   = db_fetch {
                 my $n : networks;
                 my $t : network_tags;

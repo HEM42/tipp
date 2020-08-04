@@ -15,7 +15,7 @@ sub register
         sub {
             my $c    = shift;
             my $user = $c->current_user;
-            my $dbh  = $c->dbh;
+            my $dbh  = $c->pg->db->dbh;
 
             my $default_group_id = $c->config->{tipp}{default_group_id};
             my $gid              = db_fetch {

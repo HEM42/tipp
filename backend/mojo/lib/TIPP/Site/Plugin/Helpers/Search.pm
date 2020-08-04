@@ -2,7 +2,7 @@ package TIPP::Site::Plugin::Helpers::Search;
 use Mojo::Base 'Mojolicious::Plugin';
 
 use Data::Printer alias => 'pp', use_prototypes => 0, colored => 1;
-use DBIx::Perlish;
+use DBIx::Perlish ':all';
 use Regexp::Common 'net';
 
 sub register
@@ -62,7 +62,7 @@ sub register
                 }
                 push @net_bind, "%$t%", "%$t%";
             }
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             my @n   = @{
                 $dbh->selectall_arrayref(
                     "select "
@@ -85,7 +85,7 @@ sub register
                     %used = db_fetch {
                         my $n : networks;
                         my $i : ips;
-                        join $n < $i => db_fetch {
+                        join $n < $i => subselect {
                             inet_contains( $n->net, $i->ip );
                             $i->invalidated == 0;
                         };
@@ -188,7 +188,7 @@ sub register
                 push @ip_bind, ("%$t%") x 6;
                 push @ip_sql, "(" . join( " or ", @term_sql ) . ")";
             }
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             my @i   = @{
                 $dbh->selectall_arrayref(
                     "select * from ips i left join ip_extras e on i.id = e.id where " . join( " and ", @ip_sql ) . " order by ip",
@@ -263,7 +263,7 @@ sub register
                 push @net_bind, "%$t%";
             }
 
-            my $dbh = $c->dbh;
+            my $dbh = $c->pg->db->dbh;
             my @cr  = @{
                 $dbh->selectall_arrayref(
                     "select "
@@ -286,7 +286,7 @@ sub register
                         my $cr : classes_ranges;
                         my $n : networks;
                         $cr->id < -@ids;
-                        join $cr < $n => db_fetch {
+                        join $cr < $n => subselect {
                             inet_contains( $cr->net, $n->net );
                             $n->invalidated == 0;
                         };

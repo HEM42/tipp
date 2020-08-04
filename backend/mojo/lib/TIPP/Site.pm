@@ -4,9 +4,7 @@ use Mojo::Base 'Mojolicious';
 our $VERSION = v0.5.0;
 
 use File::Basename;
-use Mojolicious::Plugin::Database;
-
-has [ 'db_user', 'db_pass', 'db_dsn' ];
+use Mojo::Pg;
 
 # This method will run once at server start
 sub startup {
@@ -21,24 +19,24 @@ sub startup {
         cookie_expiration => 3600 * 24 * 7,
     });
 
-    $me->db_user( $me->config->{tipp}{db_user} // 'tippuser' );
-    $me->db_pass( $me->config->{tipp}{db_pass} // '' );
-    $me->db_dsn(
-        sprintf(
-            'dbi:Pg:dbname=%s;host=%s',
-            ( $me->config->{tipp}{db_name} // 'tippdb' ),
-            ( $me->config->{tipp}{db_host} // '127.0.0.1' )
-        )
-    );
+    my $db_host = $me->config->{tipp}{db_host} // '127.0.0.1';
+    my $db_name = $me->config->{tipp}{db_name} // 'tippdblocal';
+    my $db_user = $me->config->{tipp}{db_user} // 'tippuser';
+    my $db_pass = $me->config->{tipp}{db_pass} // '';
 
-    $me->plugin(
-        'database',
-        {
-            dsn      => $me->db_dsn,
-            username => $me->db_user,
-            password => $me->db_pass,
-            options  => { 'pg_enable_utf8' => 1, AutoCommit => 0 },
-            helper   => 'dbh',
+    $me->helper(
+        'pg',
+        sub {
+            my $connect = "postgresql://$db_user:$db_pass\@$db_host/$db_name";
+
+            state $pg = Mojo::Pg->new($connect);
+            unless ( $pg->db->ping ) {
+                $pg = Mojo::Pg->new($connect);
+            }
+
+            # Remove quote_char '"', which is default by SQL::Abstract::Pg,
+            # Making it possible to have "complex" keys in where clause as : "ifmib->>'ifName'"
+            $pg->abstract( SQL::Abstract::Pg->new( array_datatypes => 1, name_sep => '.' ) );
         }
     );
 
@@ -51,6 +49,7 @@ sub startup {
     $me->plugin('Helpers::Tags');
     $me->plugin('Helpers::Utils');
     $me->plugin('Routes::Api');
+
 }
 
 1;
